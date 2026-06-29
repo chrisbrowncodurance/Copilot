@@ -161,6 +161,14 @@ Only persist coverage updates to `.copilot/requirements/<branch-name>.md` after 
 3. Append a **Coverage History** entry with date and commit SHA summary.
 4. Save the file and show the persisted checklist state.
 
+### Optional post-push rebase
+
+After the checklist file has been updated following a successful push, offer the user whether to rebase.
+
+1. Ask if they want to rebase onto `develop`.
+2. If yes, use the `git-rebase-develop` skill.
+3. After rebasing, do **not** run `git push`. The user will push rebased changes manually.
+
 ### Showing progress
 
 When the user asks "show requirements", "what have we done?", "show checklist", or similar:
@@ -182,6 +190,7 @@ When the user asks "show requirements", "what have we done?", "show checklist", 
 - **No premature persistence.** During commit-readiness, show checklist updates but keep them in-memory until push is confirmed by the user.
 - **Review workflow discipline.** Always run code review during commit-readiness and report suggestion counts before asking whether to proceed.
 - **Safe push flow.** If the user chooses to push, run `git pull` immediately before `git push` to reduce risk of pushing an out-of-date branch.
+- **Post-rebase push rule.** Never push automatically after rebasing; stop and leave pushing rebased changes to the user.
 - **Separation of ownership.** Work item sync and work-item intake only modify **Work Item Requirements**. **User Requirements** can only be added or removed by explicit user instruction.
 - **Follow Marken Maestro conventions.** Respect the architecture (NHibernate, MassTransit, StructureMap / MSDI, Blazor/OWIN split). When suggesting next steps, align with these patterns.
 - **UK English throughout.**
