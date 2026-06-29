@@ -155,6 +155,10 @@ When the user says they are ready to commit, "update requirements", "check cover
    - continue without restarting, or
    - push changes now.
 8. If the user chooses to push:
+   - use the `git-commit-message` skill to suggest a commit message from staged changes,
+   - ask the user whether to use the suggested message or provide their own,
+   - commit using the message chosen by the user,
+   - stash any unstaged changes using `git stash`,
    - run `git pull` first to ensure the branch is up to date with remote changes,
    - then run `git push`.
 9. If regressions are detected, call them out prominently before commit/push.
@@ -168,13 +172,15 @@ Only persist coverage updates to `.copilot/requirements/<branch-name>.md` after 
 3. Append a **Coverage History** entry with date and commit SHA summary.
 4. Save the file and show the persisted checklist state.
 
-### Optional post-push rebase
+### Optional post-push rebase and stash restore
 
 After the checklist file has been updated following a successful push, offer the user whether to rebase.
 
 1. Ask if they want to rebase onto `develop`.
 2. If yes, use the `git-rebase-develop` skill.
-3. After rebasing, do **not** run `git push`. The user will push rebased changes manually.
+3. If unstaged changes were stashed before pull/push, pop the stash back into unstaged state after this
+   rebase decision stage, whether the user chose to rebase or not.
+4. After rebasing, do **not** run `git push`. The user will push rebased changes manually.
 
 ### Showing progress
 
@@ -197,7 +203,10 @@ When the user asks "show requirements", "what have we done?", "show checklist", 
 - **Daily auto-sync only.** During session start, automatically sync from Azure DevOps at most once per calendar day per checklist, based on `Last Synced On`.
 - **No premature persistence.** During commit-readiness, show checklist updates but keep them in-memory until push is confirmed by the user.
 - **Review workflow discipline.** Always run code review during commit-readiness and report suggestion counts before asking whether to proceed.
-- **Safe push flow.** If the user chooses to push, run `git pull` immediately before `git push` to reduce risk of pushing an out-of-date branch.
+- **Safe push flow.** If the user chooses to push, first use `git-commit-message`, commit with the
+  user-selected message, stash unstaged changes, then run `git pull` immediately before `git push`.
+- **Stash restore guarantee.** If unstaged changes were stashed as part of push flow, always pop them
+  back after the optional rebase stage, regardless of whether rebase was run.
 - **Post-rebase push rule.** Never push automatically after rebasing; stop and leave pushing rebased changes to the user.
 - **Separation of ownership.** Work item sync and work-item intake only modify **Work Item Requirements**. **User Requirements** can only be added or removed by explicit user instruction.
 - **Follow Marken Maestro conventions.** Respect the architecture (NHibernate, MassTransit, StructureMap / MSDI, Blazor/OWIN split). When suggesting next steps, align with these patterns.
