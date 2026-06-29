@@ -144,13 +144,17 @@ When the user says they are ready to commit, "update requirements", "check cover
    - change code to address it, or
    - ignore it (record the decision in-session for this review pass)
 7. After all review items are worked through, ask whether to:
-   - restart the review (fresh pass after any edits), or
-   - continue without restarting.
-8. If regressions are detected, call them out prominently before commit.
+   - restart the review (fresh pass after any edits),
+   - continue without restarting, or
+   - push changes now.
+8. If the user chooses to push:
+   - run `git pull` first to ensure the branch is up to date with remote changes,
+   - then run `git push`.
+9. If regressions are detected, call them out prominently before commit/push.
 
 ### Persisting checklist updates after push
 
-Only persist coverage updates to `.copilot/requirements/<branch-name>.md` after the user confirms they have pushed their changes.
+Only persist coverage updates to `.copilot/requirements/<branch-name>.md` after the agent has successfully pushed changes.
 
 1. Reconcile the latest in-memory checklist snapshot (or regenerate if needed from current diff).
 2. Update each requirement status in its section of the checklist file.
@@ -177,6 +181,7 @@ When the user asks "show requirements", "what have we done?", "show checklist", 
 - **No silent regressions.** Always compare the current diff against previously covered requirements. If something looks removed, flag it.
 - **No premature persistence.** During commit-readiness, show checklist updates but keep them in-memory until push is confirmed by the user.
 - **Review workflow discipline.** Always run code review during commit-readiness and report suggestion counts before asking whether to proceed.
+- **Safe push flow.** If the user chooses to push, run `git pull` immediately before `git push` to reduce risk of pushing an out-of-date branch.
 - **Separation of ownership.** Work item sync and work-item intake only modify **Work Item Requirements**. **User Requirements** can only be added or removed by explicit user instruction.
 - **Follow Marken Maestro conventions.** Respect the architecture (NHibernate, MassTransit, StructureMap / MSDI, Blazor/OWIN split). When suggesting next steps, align with these patterns.
 - **UK English throughout.**
