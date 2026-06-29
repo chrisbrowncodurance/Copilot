@@ -34,6 +34,7 @@ Use this exact structure so you can reliably parse it:
 
 ## Work Item
 Number: <work-item-number-or-empty>
+Last Synced On: <YYYY-MM-DD-or-empty>
 
 ## Feature Description
 <description>
@@ -69,11 +70,15 @@ Valid status values:
 
 ### On every session start
 
+Loading the agent counts as starting a session, so run this flow immediately on startup.
+
 1. Run `git rev-parse --abbrev-ref HEAD` to get the current branch name.
 2. Check whether `.copilot/requirements/<branch-name>.md` exists.
-   - **If it exists**: load it, read `## Work Item` -> `Number`, and greet the user with a summary of current requirement coverage.
+   - **If it exists**: load it, read `## Work Item` -> `Number` and `Last Synced On`, and greet the user with a summary of current requirement coverage.
    - **If it does not exist**: offer a choice between syncing from a work item or entering the requirements manually.
-3. If the checklist exists and `Number` is present, sync from that work item automatically using `read-ado-user-story` without asking the user for the number.
+3. If `Number` is present, treat agent startup as a session start and evaluate auto-sync:
+   - If `Last Synced On` is today's date (calendar date), skip automatic sync for today.
+   - If `Last Synced On` is missing or not today's date, automatically sync from that work item using `read-ado-user-story` without asking for the number.
 4. If `Number` is missing, ask for the Azure DevOps user story number only when sync is needed.
 5. Use the `read-ado-user-story` skill to read the work item's `System.Description` and `Microsoft.VSTS.Common.AcceptanceCriteria`.
 
@@ -87,6 +92,7 @@ If the user chooses manual entry, ask the following questions **one at a time**:
 Once you have the answers, create `.copilot/requirements/<branch-name>.md` using the checklist format above:
 - Put the manually entered description and acceptance criteria into **Work Item Requirements**.
 - Initialise all requirement statuses to `⬜ Not started`.
+- Set `## Work Item` -> `Last Synced On` to empty.
 - Leave **User Requirements** empty unless the user explicitly adds entries.
 
 Confirm the file has been created and show the initial checklist.
@@ -98,12 +104,13 @@ When the user provides a user story number:
 1. Load the story with the `read-ado-user-story` skill.
 2. Use the story title as the feature heading unless the user asks for something different.
 3. Write the provided story number to `## Work Item` -> `Number`.
-4. Convert the description into the feature description section.
-5. Convert the acceptance criteria into **Work Item Requirements** rows.
-6. If a requirements file already exists, update only `## Work Item` -> `Number`, **Feature Description**, and **Work Item Requirements** while preserving existing coverage status where requirement text still matches.
-7. Never add, remove, or rewrite **User Requirements** during sync; they persist until the user explicitly changes them.
-8. If no requirements file exists, create it from the work item data with an empty **User Requirements** section.
-9. If the user does not know the story number and there is no checklist yet, offer the choice:
+4. Write today's date (`YYYY-MM-DD`) to `## Work Item` -> `Last Synced On` when the sync succeeds.
+5. Convert the description into the feature description section.
+6. Convert the acceptance criteria into **Work Item Requirements** rows.
+7. If a requirements file already exists, update only `## Work Item` -> `Number`, `Last Synced On`, **Feature Description**, and **Work Item Requirements** while preserving existing coverage status where requirement text still matches.
+8. Never add, remove, or rewrite **User Requirements** during sync; they persist until the user explicitly changes them.
+9. If no requirements file exists, create it from the work item data with an empty **User Requirements** section.
+10. If the user does not know the story number and there is no checklist yet, offer the choice:
    - sync from a work item number
    - enter the details manually
 
@@ -187,6 +194,7 @@ When the user asks "show requirements", "what have we done?", "show checklist", 
 - **Fail fast.** If the checklist file is missing and you cannot determine the branch name, tell the user immediately and ask them to confirm the branch.
 - **Evidence-based coverage.** Do not mark a requirement as covered unless you have found concrete evidence in the code (a test, an implementation, a contract, or a registered consumer).
 - **No silent regressions.** Always compare the current diff against previously covered requirements. If something looks removed, flag it.
+- **Daily auto-sync only.** During session start, automatically sync from Azure DevOps at most once per calendar day per checklist, based on `Last Synced On`.
 - **No premature persistence.** During commit-readiness, show checklist updates but keep them in-memory until push is confirmed by the user.
 - **Review workflow discipline.** Always run code review during commit-readiness and report suggestion counts before asking whether to proceed.
 - **Safe push flow.** If the user chooses to push, run `git pull` immediately before `git push` to reduce risk of pushing an out-of-date branch.
