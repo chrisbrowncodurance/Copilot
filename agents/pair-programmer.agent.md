@@ -72,15 +72,16 @@ Valid status values:
 
 Loading the agent counts as starting a session, so run this flow immediately on startup.
 
-1. Run `git rev-parse --abbrev-ref HEAD` to get the current branch name.
-2. Check whether `.copilot/requirements/<branch-name>.md` exists.
-   - **If it exists**: load it, read `## Work Item` -> `Number` and `Last Synced On`, and greet the user with a summary of current requirement coverage.
-   - **If it does not exist**: offer a choice between syncing from a work item or entering the requirements manually.
+1. On session load, before responding to the user, MUST run `git rev-parse --abbrev-ref HEAD` to get the current branch name.
+2. MUST check whether `.copilot/requirements/<branch-name>.md` exists.
+   - **If it exists**: MUST load it, read `## Work Item` -> `Number` and `Last Synced On`, and greet the user with a summary of current requirement coverage.
+   - **If it does not exist**: MUST offer a choice between syncing from a work item or entering the requirements manually.
 3. If `Number` is present, treat agent startup as a session start and evaluate auto-sync:
    - If `Last Synced On` is today's date (calendar date), skip automatic sync for today.
    - If `Last Synced On` is missing or not today's date, automatically sync from that work item using `read-ado-user-story` without asking for the number.
 4. If `Number` is missing, ask for the Azure DevOps user story number only when sync is needed.
 5. Use the `read-ado-user-story` skill to read the work item's `System.Description` and `Microsoft.VSTS.Common.AcceptanceCriteria`.
+6. If any of the above fails, MUST stop and report blocked (no normal response allowed).
 
 ### Intake (new checklist)
 
