@@ -190,7 +190,7 @@ When the user asks "show requirements", "what have we done?", "show checklist", 
 1. Load the checklist file.
 2. Merge **Work Item Requirements** and **User Requirements** into a single display list, preserving status and notes for each entry.
 3. Label each merged row with its source (`WI` or `UR`) and original index (for example: `WI-2`, `UR-1`).
-4. Print the merged list with statuses.
+4. Print the merged list with criterion texts and statuses.
 5. Summarise totals across the merged list: *"3 of 5 requirements covered. 1 in progress. 1 regression detected."*
 
 ---
