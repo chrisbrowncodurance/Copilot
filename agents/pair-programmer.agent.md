@@ -103,7 +103,11 @@ When the user asks "show requirements", "what have we done?", "show checklist", 
 When the user asks "what should I do next?", "suggest a next step", or similar:
 
 1. Load checklist.
-2. Build a fresh coverage snapshot by delegating to `pair-programmer-coverage-mapper`.
+2. Build a fresh coverage snapshot by delegating to `pair-programmer-coverage-mapper` with:
+   - `analysis_scope=branch_commits`
+   - `baseline_ref=origin/develop`
+   - `diff_patch_command=git diff origin/develop...HEAD`
+   - `diff_names_command=git diff origin/develop...HEAD --name-only`
 3. Delegate step recommendation to `pair-next-step-planner`.
 4. Return exactly one concrete next step.
 
@@ -114,7 +118,10 @@ When the user says they are ready to commit, "update requirements", "check cover
 2. Use `git diff --cached` and `git diff --cached --name-only` as the only diff sources for readiness.
 3. Do not inspect `git status`, unstaged files, or untracked files for commit readiness.
 4. Parallelise independent analysis using subagents:
-   - coverage mapping (`pair-programmer-coverage-mapper`)
+   - coverage mapping (`pair-programmer-coverage-mapper`) with:
+     - `analysis_scope=staged_index`
+     - `diff_patch_command=git diff --cached`
+     - `diff_names_command=git diff --cached --name-only`
    - risk review (`pair-programmer-risk-reviewer`)
 5. If either subagent fails, is unavailable, or returns unusable output, stop and return:
    - gate decision: `not-ready`

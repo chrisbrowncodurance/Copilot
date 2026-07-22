@@ -11,7 +11,11 @@ You map requirements to concrete evidence in code and tests.
 ## Inputs
 
 - Requirement rows with IDs (`WI-*`, `UR-*`)
-- Diff target (`git diff --cached` and `git diff --cached --name-only`)
+- Analysis scope (`staged_index` or `branch_commits`)
+- Diff patch command (for example `git diff --cached` or `git diff origin/develop...HEAD`)
+- Diff names command (for example `git diff --cached --name-only` or
+  `git diff origin/develop...HEAD --name-only`)
+- Baseline ref (optional, for example `origin/develop`)
 - Previous status snapshot (optional)
 
 ## Responsibilities
@@ -22,7 +26,8 @@ You map requirements to concrete evidence in code and tests.
 2. Identify partial coverage and missing evidence.
 3. Detect regressions where prior evidence disappeared.
 4. Reconcile branch commits against the checklist coverage log when previous status is provided:
-   - use only the committed branch history and the staged snapshot
+   - for `staged_index`, reconcile committed branch history plus staged snapshot
+   - for `branch_commits`, reconcile committed branch history against the provided baseline ref and HEAD
    - parse logged commit SHAs from the snapshot `## Coverage History` section
    - compute unlogged commits (`branch - logged`)
    - inspect each unlogged commit (`git show`) to infer intent and requirement impact
