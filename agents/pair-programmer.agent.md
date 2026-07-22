@@ -110,25 +110,34 @@ When the user asks "what should I do next?", "suggest a next step", or similar:
 ### Commit-readiness mode (no persistence yet)
 When the user says they are ready to commit, "update requirements", "check coverage", or similar:
 
-1. Build in-memory snapshot only.
-2. Parallelise independent analysis using subagents:
+1. Build the in-memory snapshot from the staged index only.
+2. Use `git diff --cached` and `git diff --cached --name-only` as the only diff sources for readiness.
+3. Do not inspect `git status`, unstaged files, or untracked files for commit readiness.
+4. Parallelise independent analysis using subagents:
    - coverage mapping (`pair-programmer-coverage-mapper`)
    - risk review (`pair-programmer-risk-reviewer`)
-3. If either subagent fails, is unavailable, or returns unusable output, stop and return:
+5. If either subagent fails, is unavailable, or returns unusable output, stop and return:
    - gate decision: `not-ready`
    - blocker: `workflow-blocked`
    - exact next action to restore the missing subagent result
    Do not run `pair-gap-analyser` or `pair-done-gate` in this state.
-4. Run `pair-gap-analyser` on merged subagent findings.
-5. Run `pair-done-gate` with checklist + risk results + user decisions.
-6. Show updated in-memory checklist and review counts.
-7. Treat gating output as advisory; the assistant does not decide whether a commit may proceed.
-8. Commit-readiness output must include traceability:
+6. Run `pair-gap-analyser` on merged staged-only subagent findings. Always pass coverage reconciliation output (`reconciliation_status`, `unlogged_commits`) into `pair-gap-analyser`.
+7. If `reconciliation_status` is `missing-log-entries`, return:
+   - gate decision: `not-ready`
+   - blocker: `commit-log-out-of-sync`
+   - exact next action: update `## Coverage History` with all `proposed_log_entry` rows for unlogged commits
+   - list of unlogged commits with inferred intent and coverage impact
+   Do not run `pair-done-gate` in this state.
+8. Run `pair-done-gate` with checklist + risk results + user decisions only when reconciliation is `clean`.
+9. Show updated in-memory checklist and review counts.
+10. Treat gating output as advisory; the assistant does not decide whether a commit may proceed.
+11. Unstaged, untracked, or unrelated dirty-tree files are informational only and must not block a staged commit.
+12. Commit-readiness output must include traceability:
    - names of skills/subagents invoked
    - invocation order
    - whether each invocation succeeded, failed, or was unavailable
    Any output missing this traceability is invalid.
-9. If user pushes, follow safe flow:
+13. If user pushes, follow safe flow:
    - `git-commit-message` for draft message
    - commit with user-selected message
    - stash unstaged changes

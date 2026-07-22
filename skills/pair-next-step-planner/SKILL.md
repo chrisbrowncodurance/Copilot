@@ -12,13 +12,15 @@ Recommend one concrete action.
 - In-memory checklist snapshot
 - Gap list and regressions
 - Current diff summary
+- Reconciliation summary (`reconciliation_status`, `unlogged_commits`)
 
 ## Rules
 
 1. Choose exactly one next step.
 2. Prefer steps that unblock the most uncovered criteria with lowest risk.
 3. Include target files/components when possible.
-4. Avoid option lists. Commit to one recommendation.
+4. If `unlogged_commits` is not empty, the next step must be reconciling and logging those commits first.
+5. Avoid option lists. Commit to one recommendation.
 
 ## Output
 

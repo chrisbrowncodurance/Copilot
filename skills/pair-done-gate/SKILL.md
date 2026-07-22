@@ -9,7 +9,7 @@ Apply deterministic readiness checks before commit and push.
 
 ## Inputs
 
-- In-memory checklist snapshot
+- In-memory checklist snapshot derived from staged changes
 - Review findings summary
 - User decisions on unresolved review items
 - Commit message guidance from `git-commit-message`
@@ -21,6 +21,7 @@ Apply deterministic readiness checks before commit and push.
 3. Return `ready-to-push` only as an advisory status after commit succeeds and pull/push preconditions pass.
 4. Before recommending a commit, consult `git-commit-message` and use its suggested subject as the commit message.
 5. If `git-commit-message` says not to add a body or trailer, preserve that instruction.
+6. Ignore unstaged, untracked, and unrelated dirty-tree findings when deciding whether the staged work is ready.
 
 ## Output
 
