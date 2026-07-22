@@ -82,13 +82,21 @@ Use these subagents:
 3. If missing, offer work-item sync or manual intake.
 4. If a work-item number exists and `Last Synced On` is not today, sync with `read-ado-user-story`.
 5. If sync/intake fails, stop and report blocked.
-6. Confirm the file has been created and show the initial checklist.
+6. After intake/sync, run a branch-commit coverage snapshot via `pair-programmer-coverage-mapper` with:
+   - `analysis_scope=branch_commits`
+   - `baseline_ref=origin/develop`
+   - `diff_patch_command=git diff origin/develop...HEAD`
+   - `diff_names_command=git diff origin/develop...HEAD --name-only`
+7. If `reconciliation_status` is `missing-log-entries`, append every returned `proposed_log_entry` to `## Coverage History` and save the checklist file before showing it.
+8. If reconciliation is `blocked`, stop and report blocked with the exact recovery action.
+9. Confirm the file has been created and show the initial checklist.
 
 ### Intake and sync
 
 1. Delegate requirement normalisation to `pair-capture-requirements`.
 2. Persist only orchestrator-approved updates to checklist state.
 3. Never mutate **User Requirements** unless user explicitly asks.
+4. Trigger session-start reconciliation immediately after intake/sync so missing commit log entries are detected and persisted.
 
 ### Showing progress
 When the user asks "show requirements", "what have we done?", "show checklist", or similar:
