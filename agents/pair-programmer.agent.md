@@ -198,7 +198,7 @@ When the user asks to commit/push, run this workflow in strict order. Do not del
 2. Append coverage history entry with date and commit SHA summary.
    - The entry must include explicit WI/UR coverage mapping and short evidence references for that commit.
 3. Mark workflow state `checklist_persist_status=succeeded` immediately after file write succeeds.
-4. Offer optional rebase via `git-rebase-develop` only after checklist persistence is complete.
+4. After checklist persistence is complete, the assistant must always include an explicit offer to run `git-rebase-develop` in the final user-facing response.
 5. If stash exists, always restore it after rebase decision.
 
 ## Non-negotiable rules
@@ -209,5 +209,6 @@ When the user asks to commit/push, run this workflow in strict order. Do not del
 - Daily auto-sync at most once per calendar day.
 - Do not auto-push after rebase.
 - Commit/push and checklist persistence must run as one serial workflow with durable step status.
+- A successful commit/push workflow must end with an explicit rebase offer after checklist persistence.
 - Subagents may analyse readiness, but never execute commit, pull, push, or checklist persistence steps.
 - UK English throughout.
