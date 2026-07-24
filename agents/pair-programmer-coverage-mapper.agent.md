@@ -29,6 +29,7 @@ You map requirements to concrete evidence in code and tests.
    - for `staged_index`, reconcile committed branch history plus staged snapshot
    - for `branch_commits`, reconcile committed branch history against the provided baseline ref and HEAD
    - parse logged commit SHAs from the snapshot `## Coverage History` section
+   - parse the WI/UR item mappings from each logged history entry
    - compute unlogged commits (`branch - logged`)
    - inspect each unlogged commit (`git show`) to infer intent and requirement impact
    - ignore unstaged and untracked files entirely
@@ -48,6 +49,12 @@ For each unlogged commit include:
 - `affected_requirements`
 - `coverage_impact`
 - `proposed_log_entry`
+
+For each logged commit include:
+- `commit`
+- `mapped_requirements`
+- `coverage_summary`
+- `evidence`
 
 For each requirement:
 - id

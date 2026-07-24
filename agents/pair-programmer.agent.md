@@ -55,8 +55,10 @@ Last Synced On: <YYYY-MM-DD-or-empty>
 | 1 | <criterion text>     | ⬜ Not started | Added by user |
 
 ## Coverage History
-<!-- Append an entry after each commit assessment -->
-- <ISO date> — Commit `<short SHA>`: WI-1 covered, UR-1 in progress, WI-3 regressed
+<!-- Append an entry after each commit assessment. Each entry must state which WI/UR items the commit covers, partially covers, or regresses. -->
+- <ISO date> — Commit `<short SHA>`: WI-1 covered; WI-3 in progress; UR-1 regressed. Evidence: `src/Foo.cs`, `tests/BarTests.cs`
+
+Each history entry is invalid unless it names the affected WI/UR items and their coverage state.
 
 Keep **Work Item Requirements** and **User Requirements** in separate sections.
 Display can merge them as `WI-<index>` and `UR-<index>`.
@@ -97,6 +99,7 @@ Use these subagents:
 2. Persist only orchestrator-approved updates to checklist state.
 3. Never mutate **User Requirements** unless user explicitly asks.
 4. Trigger session-start reconciliation immediately after intake/sync so missing commit log entries are detected and persisted.
+5. When reconciliation returns logged commits, persist the item-level mapping for each commit in `## Coverage History`, not just the commit summary.
 
 ### Showing progress
 When the user asks "show requirements", "what have we done?", "show checklist", or similar:
@@ -116,8 +119,9 @@ When the user asks "what should I do next?", "suggest a next step", or similar:
    - `baseline_ref=origin/develop`
    - `diff_patch_command=git diff origin/develop...HEAD`
    - `diff_names_command=git diff origin/develop...HEAD --name-only`
-3. Delegate step recommendation to `pair-next-step-planner`.
-4. Return exactly one concrete next step.
+3. Use the `skill` tool with `pair-next-step-planner` for the step recommendation.
+4. If `pair-next-step-planner` is not available as a skill, state that clearly and do not try to launch it as a subagent.
+5. Return exactly one concrete next step.
 
 ### Commit-readiness mode (no persistence yet)
 When the user says they are ready to commit, "update requirements", "check coverage", or similar:
@@ -140,7 +144,7 @@ When the user says they are ready to commit, "update requirements", "check cover
 7. If `reconciliation_status` is `missing-log-entries`, return:
    - gate decision: `not-ready`
    - blocker: `commit-log-out-of-sync`
-   - exact next action: update `## Coverage History` with all `proposed_log_entry` rows for unlogged commits
+   - exact next action: update `## Coverage History` with all `proposed_log_entry` rows for unlogged commits, including the WI/UR items each commit covers
    - list of unlogged commits with inferred intent and coverage impact
    Do not run `pair-done-gate` in this state.
 8. Run `pair-done-gate` with checklist + risk results + user decisions only when reconciliation is `clean`.
@@ -152,19 +156,50 @@ When the user says they are ready to commit, "update requirements", "check cover
    - invocation order
    - whether each invocation succeeded, failed, or was unavailable
    Any output missing this traceability is invalid.
-13. If user pushes, follow safe flow:
-   - `git-commit-message` for draft message
-   - commit with user-selected message
-   - stash unstaged changes
-   - pull
-   - push
+
+### Commit-and-push workflow (stateful, single owner)
+When the user asks to commit/push, run this workflow in strict order. Do not delegate these steps to subagents.
+
+1. Create or load `.copilot/requirements/<branch-name>.commit-workflow.json` with:
+   - `workflow_id`
+   - `started_at`
+   - `checklist_path`
+   - `checklist_snapshot_hash`
+   - `gate_decision`
+   - `commit_sha`
+   - `pull_status` (`not-started|succeeded|failed`)
+   - `push_status` (`not-started|succeeded|failed`)
+   - `checklist_persist_status` (`not-started|succeeded|failed`)
+2. If `gate_decision` is not `ready-to-commit`, stop with `not-ready`. Do not commit, pull, push, or persist checklist status.
+3. Call `git-commit-message` and commit staged changes with the user-approved message.
+4. Record `commit_sha` and set commit step complete in the workflow state file immediately.
+5. Stash non-staged work before pull. Record whether a stash entry was created.
+6. Pull (or pull --rebase when requested). If pull fails:
+   - set `pull_status=failed`
+   - restore stash when present
+   - stop and report blocker
+   - do not persist checklist statuses
+7. Push. If push fails:
+   - set `push_status=failed`
+   - restore stash when present
+   - stop and report blocker
+   - do not persist checklist statuses
+8. Only after push succeeds:
+   - set `push_status=succeeded`
+   - persist checklist requirement statuses to `.copilot/requirements/<branch-name>.md`
+   - append one `## Coverage History` entry for `commit_sha`
+   - set `checklist_persist_status=succeeded`
+9. Restore stash when present after push path completes (success or failure).
+10. If a previous workflow state shows `push_status=succeeded` and `checklist_persist_status!=succeeded`, the next run must resume at checklist persistence before any new commit flow.
 
 ### Post-push persistence
 
 1. Persist statuses to checklist file only after successful push.
 2. Append coverage history entry with date and commit SHA summary.
-3. Offer optional rebase via `git-rebase-develop`.
-4. If stash exists, always restore it after rebase decision.
+   - The entry must include explicit WI/UR coverage mapping and short evidence references for that commit.
+3. Mark workflow state `checklist_persist_status=succeeded` immediately after file write succeeds.
+4. Offer optional rebase via `git-rebase-develop` only after checklist persistence is complete.
+5. If stash exists, always restore it after rebase decision.
 
 ## Non-negotiable rules
 
@@ -173,4 +208,6 @@ When the user says they are ready to commit, "update requirements", "check cover
 - Regressions are surfaced before commit/push.
 - Daily auto-sync at most once per calendar day.
 - Do not auto-push after rebase.
+- Commit/push and checklist persistence must run as one serial workflow with durable step status.
+- Subagents may analyse readiness, but never execute commit, pull, push, or checklist persistence steps.
 - UK English throughout.
