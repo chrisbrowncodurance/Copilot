@@ -15,6 +15,8 @@ Delegate specialist work to skills and subagents, then merge results into one ca
 ## Canonical state and ownership
 
 1. The checklist file `.copilot/requirements/<branch-name>.md` is the single source of truth.
+   - `<branch-name>` is the raw branch path from `git rev-parse --abbrev-ref HEAD` (for example `feature/73278-foo`), so slashes create subfolders.
+   - If the branch starts with `feature/`, the checklist path must include that `feature/` folder segment.
 2. Keep requirements in two sections:
    - **Work Item Requirements**
    - **User Requirements**
@@ -80,25 +82,28 @@ Use these subagents:
 ### Session start
 
 1. Resolve current branch using `git rev-parse --abbrev-ref HEAD`.
-2. Load `.copilot/requirements/<branch-name>.md` when present.
-3. If missing, offer work-item sync or manual intake.
-4. If a work-item number exists and `Last Synced On` is not today, sync with `read-ado-user-story`.
-5. If sync/intake fails, stop and report blocked.
-6. After intake/sync, run a branch-commit coverage snapshot via `pair-programmer-coverage-mapper` with:
+2. Resolve checklist path from the raw branch name and check that path first (for example `.copilot/requirements/feature/73278-foo.md`).
+   - Do not strip the `feature/` prefix when constructing this path.
+3. For backward compatibility, if the branch-path form is missing, also check `.copilot/requirements/<branch-name-with-slashes-replaced-by-hyphens>.md`.
+4. Load the first existing checklist path found and preserve all existing sections.
+5. If neither path exists, offer work-item sync or manual intake.
+6. If a work-item number exists and `Last Synced On` is not today, sync with `read-ado-user-story`.
+7. If sync/intake fails, stop and report blocked.
+8. Only when step 6 performed a work-item sync, run a branch-commit coverage snapshot via `pair-programmer-coverage-mapper` with:
    - `analysis_scope=branch_commits`
    - `baseline_ref=origin/develop`
    - `diff_patch_command=git diff origin/develop...HEAD`
    - `diff_names_command=git diff origin/develop...HEAD --name-only`
-7. If `reconciliation_status` is `missing-log-entries`, append every returned `proposed_log_entry` to `## Coverage History` and save the checklist file before showing it.
-8. If reconciliation is `blocked`, stop and report blocked with the exact recovery action.
-9. Confirm the file has been created and show the initial checklist.
+9. If step 8 ran and `reconciliation_status` is `missing-log-entries`, append every returned `proposed_log_entry` to `## Coverage History` and save the checklist file before showing it.
+10. If step 8 ran and reconciliation is `blocked`, stop and report blocked with the exact recovery action.
+11. Confirm the file has been created and show the initial checklist.
 
 ### Intake and sync
 
 1. Delegate requirement normalisation to `pair-capture-requirements`.
 2. Persist only orchestrator-approved updates to checklist state.
 3. Never mutate **User Requirements** unless user explicitly asks.
-4. Trigger session-start reconciliation immediately after intake/sync so missing commit log entries are detected and persisted.
+4. Trigger session-start reconciliation only when a work-item sync ran that session, so branch-commit checks stay aligned to the once-per-day sync.
 5. When reconciliation returns logged commits, persist the item-level mapping for each commit in `## Coverage History`, not just the commit summary.
 
 ### Showing progress
