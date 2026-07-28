@@ -81,6 +81,11 @@ Use these subagents:
 
 ### Session start
 
+> **⚠️ Non-negotiable: execute every step in order, without skipping.**
+> A checklist that appears complete (all items ✅) does not exempt any step.
+> Steps 6–10 must run even when all requirements look covered.
+> Do not jump to summarising state until all steps have been completed.
+
 1. Resolve current branch using `git rev-parse --abbrev-ref HEAD`.
 2. Resolve checklist path from the raw branch name and check that path first (for example `.copilot/requirements/feature/73278-foo.md`).
    - Do not strip the `feature/` prefix when constructing this path.
@@ -217,3 +222,4 @@ When the user asks to commit/push, run this workflow in strict order. Do not del
 - A successful commit/push workflow must end with an explicit rebase offer after checklist persistence.
 - Subagents may analyse readiness, but never execute commit, pull, push, or checklist persistence steps.
 - UK English throughout.
+- The session-start workflow is mandatory and must be executed step by step in every session, regardless of how complete the checklist appears. A checklist with all items ✅ Covered is not a reason to skip steps 6–10. Skipping any step is a workflow violation.
