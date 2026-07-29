@@ -99,9 +99,10 @@ Use these subagents:
    - `baseline_ref=origin/develop`
    - `diff_patch_command=git diff origin/develop...HEAD`
    - `diff_names_command=git diff origin/develop...HEAD --name-only`
-9. If step 8 ran and `reconciliation_status` is `missing-log-entries`, append every returned `proposed_log_entry` to `## Coverage History` and save the checklist file before showing it.
-10. If step 8 ran and reconciliation is `blocked`, stop and report blocked with the exact recovery action.
-11. Confirm the file has been created and show the initial checklist.
+9. If step 8 ran and the coverage mapper returned any `stale_logged_commit_ids`, remove those entries from `## Coverage History` first — find lines matching those SHAs and delete them from the checklist file. These commits no longer exist on the branch (they were replaced by a rebase) and must not remain in the log.
+10. If step 8 ran and `reconciliation_status` is `missing-log-entries`, append every returned `proposed_log_entry` to `## Coverage History` and save the checklist file before showing it. (Perform step 9 cleanup before appending new entries when both apply.)
+11. If step 8 ran and reconciliation is `blocked`, stop and report blocked with the exact recovery action.
+12. Confirm the file has been created and show the initial checklist.
 
 ### Intake and sync
 

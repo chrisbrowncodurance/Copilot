@@ -31,6 +31,7 @@ You map requirements to concrete evidence in code and tests.
    - parse logged commit SHAs from the snapshot `## Coverage History` section
    - parse the WI/UR item mappings from each logged history entry
    - compute unlogged commits (`branch - logged`)
+   - compute stale logged commits (`logged - branch`): these are SHAs recorded in `## Coverage History` that no longer exist on the branch — they were most likely removed by a rebase and replaced with new commit IDs
    - inspect each unlogged commit (`git show`) to infer intent and requirement impact
    - ignore unstaged and untracked files entirely
 5. Return findings only; never write, create, or modify any files — including checklist files, temporary files, or any other files in the repository or working directory.
@@ -41,6 +42,7 @@ Return a top-level reconciliation block:
 - `branch_commit_ids`
 - `logged_commit_ids`
 - `unlogged_commits`
+- `stale_logged_commit_ids`: SHAs that are in `logged_commit_ids` but not in `branch_commit_ids` — candidates for removal from `## Coverage History` after a rebase
 - `reconciliation_status` (`clean`, `missing-log-entries`, `blocked`)
 
 For each unlogged commit include:
