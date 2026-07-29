@@ -134,6 +134,16 @@ When the user asks "what should I do next?", "suggest a next step", or similar:
 4. If `pair-next-step-planner` is not available as a skill, state that clearly and do not try to launch it as a subagent.
 5. Return exactly one concrete next step.
 
+### Commit-readiness, commit-and-push, and post-push — one sequential workflow
+These three phases must run as a single uninterrupted sequence every time the user initiates a commit:
+1. **Commit-readiness** — gate check (see below)
+2. **Commit-and-push** — commit, pull, push (see below)
+3. **Post-push persistence** — checklist update (see below)
+
+All workflow state for this sequence is held **in memory only**. No state file is written during these phases.
+
+If the user stops or interrupts the workflow at **any** point during these three phases, the entire sequence must restart from **Commit-readiness** on the user's next attempt. There is no mid-sequence resume.
+
 ### Commit-readiness mode (no persistence yet)
 When the user says they are ready to commit, "update requirements", "check coverage", or similar:
 
@@ -171,44 +181,40 @@ When the user says they are ready to commit, "update requirements", "check cover
 ### Commit-and-push workflow (stateful, single owner)
 When the user asks to commit/push, run this workflow in strict order. Do not delegate these steps to subagents.
 
-1. Create or load `.copilot/requirements/<branch-name>.commit-workflow.json` with:
-   - `workflow_id`
-   - `started_at`
-   - `checklist_path`
-   - `checklist_snapshot_hash`
-   - `gate_decision`
-   - `commit_sha`
-   - `pull_status` (`not-started|succeeded|failed`)
-   - `push_status` (`not-started|succeeded|failed`)
-   - `checklist_persist_status` (`not-started|succeeded|failed`)
-2. If `gate_decision` is not `ready-to-commit`, stop with `not-ready`. Do not commit, pull, push, or persist checklist status.
-3. Call `git-commit-message` and commit staged changes with the user-approved message.
-4. Record `commit_sha` and set commit step complete in the workflow state file immediately.
-5. Stash non-staged work before pull. Record whether a stash entry was created.
-6. Pull (or pull --rebase when requested). If pull fails:
-   - set `pull_status=failed`
+Track the following state in memory only (no file is written):
+- `commit_sha`
+- `pull_status` (`not-started|succeeded|failed`)
+- `push_status` (`not-started|succeeded|failed`)
+- `checklist_persist_status` (`not-started|succeeded|failed`)
+- whether a stash entry was created
+
+1. If `gate_decision` from the commit-readiness phase is not `ready-to-commit`, stop with `not-ready`. Do not commit, pull, push, or persist checklist status.
+2. Call `git-commit-message` and commit staged changes with the user-approved message.
+3. Record `commit_sha` in memory.
+4. Stash non-staged work before pull. Record in memory whether a stash entry was created.
+5. Pull (or pull --rebase when requested). If pull fails:
+   - set `pull_status=failed` in memory
    - restore stash when present
    - stop and report blocker
    - do not persist checklist statuses
-7. Push. If push fails:
-   - set `push_status=failed`
+6. Push. If push fails:
+   - set `push_status=failed` in memory
    - restore stash when present
    - stop and report blocker
    - do not persist checklist statuses
-8. Only after push succeeds:
-   - set `push_status=succeeded`
+7. Only after push succeeds:
+   - set `push_status=succeeded` in memory
    - persist checklist requirement statuses to `.copilot/requirements/<branch-name>.md`
    - append one `## Coverage History` entry for `commit_sha`
-   - set `checklist_persist_status=succeeded`
-9. Restore stash when present after push path completes (success or failure).
-10. If a previous workflow state shows `push_status=succeeded` and `checklist_persist_status!=succeeded`, the next run must resume at checklist persistence before any new commit flow.
+   - set `checklist_persist_status=succeeded` in memory
+8. Restore stash when present after push path completes (success or failure).
 
 ### Post-push persistence
 
 1. Persist statuses to checklist file only after successful push.
 2. Append coverage history entry with date and commit SHA summary.
    - The entry must include explicit WI/UR coverage mapping and short evidence references for that commit.
-3. Mark workflow state `checklist_persist_status=succeeded` immediately after file write succeeds.
+3. Record checklist persist as complete in memory.
 4. After checklist persistence is complete, the assistant must always include an explicit offer to run `git-rebase-develop` in the final user-facing response.
 5. If stash exists, always restore it after rebase decision.
 
@@ -219,7 +225,7 @@ When the user asks to commit/push, run this workflow in strict order. Do not del
 - Regressions are surfaced before commit/push.
 - Daily auto-sync at most once per calendar day.
 - Do not auto-push after rebase.
-- Commit/push and checklist persistence must run as one serial workflow with durable step status.
+- Commit-readiness, commit-and-push, and post-push persistence run as one sequential workflow with in-memory state only. No workflow state file is written. If interrupted at any point, the entire sequence restarts from commit-readiness.
 - A successful commit/push workflow must end with an explicit rebase offer after checklist persistence.
 - Subagents may analyse readiness, but never execute commit, pull, push, or checklist persistence steps.
 - UK English throughout.
