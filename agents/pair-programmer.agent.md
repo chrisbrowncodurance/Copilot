@@ -79,38 +79,91 @@ Use these subagents:
 
 ## Workflow
 
-### Session start
+Treat each workflow as a small state machine, not a fixed script.
 
-> **⚠️ Non-negotiable: execute every step in order, without skipping.**
-> A checklist that appears complete (all items ✅) does not exempt any step.
-> Steps 6–10 must run even when all requirements look covered.
-> Do not jump to summarising state until all steps have been completed.
+Rules:
+- Run one state at a time.
+- Each state must be idempotent and safe to re-enter.
+- Persist the next state only when the current state completed successfully.
+- If a state needs user input, stop in `AwaitingUserInput` rather than guessing.
+- If a guard fails, transition to `Blocked` with the exact reason and recovery action.
 
-1. Resolve current branch using `git rev-parse --abbrev-ref HEAD`.
-2. Resolve checklist path from the raw branch name and check that path first (for example `.copilot/requirements/feature/73278-foo.md`).
+### Session start state machine
+
+States:
+`ResolveBranch -> ResolveChecklist -> LoadChecklist -> Intake -> SyncContext -> BuildChecklist -> ValidateReady -> Idle`
+
+State definitions:
+
+1. `ResolveBranch`
+   - **Input:** repository root
+   - **Action:** run `git rev-parse --abbrev-ref HEAD`
+   - **Output:** raw branch name
+   - **Exit:** branch name resolved or `Blocked` if Git fails
+
+2. `ResolveChecklist`
+   - **Input:** raw branch name
+   - **Action:** build the checklist path from the raw branch name and the hyphenated fallback path
+   - **Output:** ordered checklist path candidates
+   - **Exit:** candidate paths prepared
+
+3. `LoadChecklist`
+   - **Input:** checklist path candidates
+   - **Action:** load the first existing checklist file and preserve its current sections
+   - **Output:** checklist content in memory
+   - **Exit:** checklist loaded or `Intake` if no file exists yet
+
+4. `Intake`
+   - **Input:** user request, checklist content, branch name, repo context
+   - **Action:** delegate requirement normalisation to `pair-capture-requirements`
+   - **Output:** initial requirement set or a manual-intake prompt
+   - **Exit:** requirements captured or `AwaitingUserInput`
+
+5. `SyncContext`
+   - **Input:** checklist content, work-item number, `Last Synced On`, current branch, repo state
+   - **Action:** if a work-item number exists and the checklist was not synced today, call `read-ado-user-story` to refresh the work item description and acceptance criteria; merge the returned details into the checklist context; if the work item is missing, retain the manually captured context
+   - **Output:** updated checklist context and sync date
+   - **Exit:** context refreshed, no sync needed, or `Blocked` if the work-item lookup fails
+
+6. `BuildChecklist`
+   - **Input:** synchronised context and requirement captures
+   - **Action:** write only orchestrator-approved updates to the checklist
+   - **Output:** updated checklist model
+   - **Exit:** checklist changes prepared for persistence
+
+7. `ValidateReady`
+   - **Input:** updated checklist, repo state, and captured requirements
+   - **Action:** decide whether the session can proceed, must ask one clarifying question, or must stop because a blocker remains
+   - **Output:** ready, needs-input, or blocked decision
+   - **Exit:** `Idle`, `AwaitingUserInput`, or `Blocked`
+
+8. `Idle`
+   - **Input:** completed session state
+   - **Action:** do nothing until the next user request
+   - **Output:** stable end state
+   - **Exit:** none
+
+Execution rules:
+1. Resolve the current branch with `git rev-parse --abbrev-ref HEAD`.
+2. Resolve the checklist path from the raw branch name and check that path first, for example `.copilot/requirements/feature/73278-foo.md`.
    - Do not strip the `feature/` prefix when constructing this path.
-3. For backward compatibility, if the branch-path form is missing, also check `.copilot/requirements/<branch-name-with-slashes-replaced-by-hyphens>.md`.
+3. If the branch-path form is missing, also check `.copilot/requirements/<branch-name-with-slashes-replaced-by-hyphens>.md`.
 4. Load the first existing checklist path found and preserve all existing sections.
-5. If neither path exists, offer work-item sync or manual intake.
-6. If a work-item number exists and `Last Synced On` is not today, sync with `read-ado-user-story`.
-7. If sync/intake fails, stop and report blocked.
-8. Only when step 6 performed a work-item sync, run a branch-commit coverage snapshot via `pair-programmer-coverage-mapper` with:
+5. If neither path exists, transition to `Intake`.
+6. `Intake` delegates requirement normalisation to `pair-capture-requirements`.
+7. `SyncContext` runs only when a work-item number exists and `Last Synced On` is not today; otherwise it transitions straight to `BuildChecklist`.
+8. If sync fails or intake cannot establish enough context, transition to `Blocked`.
+9. `BuildChecklist` writes only orchestrator-approved updates to the checklist.
+10. Never mutate **User Requirements** unless the user explicitly asks.
+11. `ValidateReady` decides whether the session can proceed or must ask one clarifying question.
+12. If a work-item sync ran during this session, run branch-commit reconciliation once using `pair-programmer-coverage-mapper` with:
    - `analysis_scope=branch_commits`
    - `baseline_ref=origin/develop`
    - `diff_patch_command=git diff origin/develop...HEAD`
    - `diff_names_command=git diff origin/develop...HEAD --name-only`
-9. If step 8 ran and the coverage mapper returned any `stale_logged_commit_ids`, remove those entries from `## Coverage History` first — find lines matching those SHAs and delete them from the checklist file. These commits no longer exist on the branch (they were replaced by a rebase) and must not remain in the log.
-10. If step 8 ran and `reconciliation_status` is `missing-log-entries`, append every returned `proposed_log_entry` to `## Coverage History` and save the checklist file before showing it. (Perform step 9 cleanup before appending new entries when both apply.)
-11. If step 8 ran and reconciliation is `blocked`, stop and report blocked with the exact recovery action.
-12. Confirm the file has been created and show the initial checklist.
-
-### Intake and sync
-
-1. Delegate requirement normalisation to `pair-capture-requirements`.
-2. Persist only orchestrator-approved updates to checklist state.
-3. Never mutate **User Requirements** unless user explicitly asks.
-4. Trigger session-start reconciliation only when a work-item sync ran that session, so branch-commit checks stay aligned to the once-per-day sync.
-5. When reconciliation returns logged commits, persist the item-level mapping for each commit in `## Coverage History`, not just the commit summary.
+13. If reconciliation returns `stale_logged_commit_ids`, remove those SHAs from `## Coverage History` before writing anything else.
+14. If reconciliation returns `missing-log-entries`, append every `proposed_log_entry` to `## Coverage History` and save the checklist before showing it.
+15. If reconciliation returns `blocked`, stop and report the exact recovery action.
 
 ### Showing progress
 When the user asks "show requirements", "what have we done?", "show checklist", or similar:
@@ -134,101 +187,95 @@ When the user asks "what should I do next?", "suggest a next step", or similar:
 4. If `pair-next-step-planner` is not available as a skill, state that clearly and do not try to launch it as a subagent.
 5. Return exactly one concrete next step.
 
-### Commit-readiness, commit-and-push, and post-push — one sequential workflow
-These three phases must run as a single uninterrupted sequence every time the user initiates a commit:
-1. **Commit-readiness** — gate check (see below)
-2. **Commit-and-push** — commit, pull, push (see below)
-3. **Post-push persistence** — checklist update (see below)
+### Commit path state machine
 
-All workflow state for this sequence is held **in memory only**. No state file is written during these phases.
+States:
+`CommitReadinessGate -> FocusedValidation -> Commit -> Pull -> Push -> PostPushRecord -> Idle`
 
-If the user stops or interrupts the workflow at **any** point during these three phases, the entire sequence must restart from **Commit-readiness** on the user's next attempt. There is no mid-sequence resume.
+State definitions:
 
-### Commit-readiness mode (no persistence yet)
-When the user says they are ready to commit, "update requirements", "check coverage", or similar:
+1. `CommitReadinessGate`
+   - **Input:** staged index only
+   - **Action:** inspect `git diff --cached` and `git diff --cached --name-only`; run the coverage mapper and risk reviewer in parallel
+   - **Output:** readiness verdict, coverage reconciliation, risk findings
+   - **Exit:** ready to validate, blocked, or not-ready
 
-1. Build the in-memory snapshot from the staged index only.
-2. Use `git diff --cached` and `git diff --cached --name-only` as the only diff sources for readiness.
-3. Do not inspect `git status`, unstaged files, or untracked files for commit readiness.
-4. Parallelise independent analysis using subagents:
+2. `FocusedValidation`
+   - **Input:** staged diff, checklist snapshot, coverage reconciliation, risk findings
+   - **Action:** run `pair-gap-analyser` and, when reconciliation is clean, `pair-done-gate`
+   - **Output:** merged readiness decision and reviewer guidance
+   - **Exit:** ready to commit, blocked, or awaiting user action
+
+3. `Commit`
+   - **Input:** approved staged changes and commit message
+   - **Action:** call `git-commit-message` and create the commit
+   - **Output:** `commit_sha`
+   - **Exit:** commit recorded or blocked
+
+4. `Pull`
+   - **Input:** commit SHA and current branch state
+   - **Action:** stash non-staged work if needed, then run `git pull` or `git pull --rebase` when requested
+   - **Output:** updated branch state and optional stash reference
+   - **Exit:** pull succeeded or blocked
+
+5. `Push`
+   - **Input:** committed changes and pulled branch state
+   - **Action:** push the branch to the remote
+   - **Output:** push result
+   - **Exit:** push succeeded or blocked
+
+6. `PostPushRecord`
+   - **Input:** successful push result, commit SHA, checklist snapshot
+   - **Action:** persist checklist requirement statuses and append one coverage history entry for the commit
+   - **Output:** persisted checklist and recorded history
+   - **Exit:** persistence complete
+
+7. `Idle`
+   - **Input:** completed commit workflow
+   - **Action:** do nothing until the next user request
+   - **Output:** stable end state
+   - **Exit:** none
+
+Execution rules:
+1. Treat this as one uninterrupted sequence.
+2. Hold all workflow state in memory only.
+3. If the user interrupts at any point, restart from `CommitReadinessGate` next time.
+4. Build the readiness snapshot from the staged index only.
+5. Use `git diff --cached` and `git diff --cached --name-only` as the only diff sources for readiness.
+6. Do not inspect `git status`, unstaged files, or untracked files for commit readiness.
+7. Parallelise independent analysis using subagents:
    - coverage mapping (`pair-programmer-coverage-mapper`) with:
      - `analysis_scope=staged_index`
      - `diff_patch_command=git diff --cached`
      - `diff_names_command=git diff --cached --name-only`
    - risk review (`pair-programmer-risk-reviewer`)
-5. If either subagent fails, is unavailable, or returns unusable output, stop and return:
+8. If either subagent fails, is unavailable, or returns unusable output, return:
    - gate decision: `not-ready`
    - blocker: `workflow-blocked`
    - exact next action to restore the missing subagent result
    Do not run `pair-gap-analyser` or `pair-done-gate` in this state.
-6. Run `pair-gap-analyser` on merged staged-only subagent findings. Always pass coverage reconciliation output (`reconciliation_status`, `unlogged_commits`) into `pair-gap-analyser`.
-7. If `reconciliation_status` is `missing-log-entries`, return:
+9. Run `pair-gap-analyser` on merged staged-only subagent findings and always pass coverage reconciliation output (`reconciliation_status`, `unlogged_commits`) into `pair-gap-analyser`.
+10. If `reconciliation_status` is `missing-log-entries`, return:
    - gate decision: `not-ready`
    - blocker: `commit-log-out-of-sync`
    - exact next action: update `## Coverage History` with all `proposed_log_entry` rows for unlogged commits, including the WI/UR items each commit covers
    - list of unlogged commits with inferred intent and coverage impact
    Do not run `pair-done-gate` in this state.
-8. Run `pair-done-gate` with checklist + risk results + user decisions only when reconciliation is `clean`.
-9. Show updated in-memory checklist and review counts.
-10. **Interactive review step-through** — if the risk reviewer returned any findings:
-    a. Present the findings table to the user.
-    b. Ask the user whether they would like to step through the review issues one by one.
-    c. If the user declines, treat all issues as acknowledged and continue.
-    d. If the user accepts, iterate through each issue in sequence:
-       - Display: the issue title, full description, impacted requirements (if any), and the concrete suggested fix from the reviewer.
-       - Ask the user to choose one of: **Apply fix** / **Fix it myself** / **Ignore**.
-       - *Apply fix*: apply the change as described by the reviewer, confirm the change to the user, then move to the next issue.
-       - *Fix it myself*: pause and wait for the user to confirm they have applied the fix before moving to the next issue.
-       - *Ignore*: acknowledge the issue as deliberately skipped and move to the next issue.
-    e. After all issues have been addressed (applied, self-fixed, or ignored), summarise the outcome: how many were applied, self-fixed, or ignored.
-    f. Review items shown in this step-through must come exclusively from the `pair-programmer-risk-reviewer` subagent. Never surface items that describe uncovered requirements — those are not code review findings.
-11. Treat gating output as advisory; the assistant does not decide whether a commit may proceed.
-12. Unstaged, untracked, or unrelated dirty-tree files are informational only and must not block a staged commit.
-13. Commit-readiness output must include traceability:
-   - names of skills/subagents invoked
-   - invocation order
-   - whether each invocation succeeded, failed, or was unavailable
-   Any output missing this traceability is invalid.
-
-### Commit-and-push workflow (stateful, single owner)
-When the user asks to commit/push, run this workflow in strict order. Do not delegate these steps to subagents.
-
-Track the following state in memory only (no file is written):
-- `commit_sha`
-- `pull_status` (`not-started|succeeded|failed`)
-- `push_status` (`not-started|succeeded|failed`)
-- `checklist_persist_status` (`not-started|succeeded|failed`)
-- whether a stash entry was created
-
-1. If `gate_decision` from the commit-readiness phase is not `ready-to-commit`, stop with `not-ready`. Do not commit, pull, push, or persist checklist status.
-2. Call `git-commit-message` and commit staged changes with the user-approved message.
-3. Record `commit_sha` in memory.
-4. Stash non-staged work before pull. Record in memory whether a stash entry was created.
-5. Pull (or pull --rebase when requested). If pull fails:
-   - set `pull_status=failed` in memory
-   - restore stash when present
-   - stop and report blocker
-   - do not persist checklist statuses
-6. Push. If push fails:
-   - set `push_status=failed` in memory
-   - restore stash when present
-   - stop and report blocker
-   - do not persist checklist statuses
-7. Only after push succeeds:
-   - set `push_status=succeeded` in memory
-   - persist checklist requirement statuses to `.copilot/requirements/<branch-name>.md`
-   - append one `## Coverage History` entry for `commit_sha`
-   - set `checklist_persist_status=succeeded` in memory
-8. Restore stash when present after push path completes (success or failure).
-
-### Post-push persistence
-
-1. Persist statuses to checklist file only after successful push.
-2. Append coverage history entry with date and commit SHA summary.
-   - The entry must include explicit WI/UR coverage mapping and short evidence references for that commit.
-3. Record checklist persist as complete in memory.
-4. After checklist persistence is complete, the assistant must always include an explicit offer to run `git-rebase-develop` in the final user-facing response.
-5. If stash exists, always restore it after rebase decision.
+11. Run `pair-done-gate` with checklist + risk results + user decisions only when reconciliation is `clean`.
+12. Show updated in-memory checklist and review counts.
+13. If the risk reviewer returned findings, present the findings table and step through them one by one only if the user asks.
+14. Treat gating output as advisory; the assistant does not decide whether a commit may proceed.
+15. Unstaged, untracked, or unrelated dirty-tree files are informational only and must not block a staged commit.
+16. When committing:
+   - call `git-commit-message`
+   - create the commit
+   - record `commit_sha`
+17. Before pull, stash non-staged work if needed and record whether a stash entry was created.
+18. Pull or pull --rebase when requested. If pull fails, restore the stash when present and stop.
+19. Push. If push fails, restore the stash when present and stop.
+20. Only after push succeeds, persist checklist requirement statuses to `.copilot/requirements/<branch-name>.md` and append one `## Coverage History` entry for `commit_sha`.
+21. After checklist persistence is complete, always include an explicit offer to run `git-rebase-develop` in the final user-facing response.
+22. Restore the stash when present after the workflow finishes, whether it succeeds or fails.
 
 ## Non-negotiable rules
 
