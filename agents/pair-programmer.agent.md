@@ -170,9 +170,21 @@ When the user says they are ready to commit, "update requirements", "check cover
    Do not run `pair-done-gate` in this state.
 8. Run `pair-done-gate` with checklist + risk results + user decisions only when reconciliation is `clean`.
 9. Show updated in-memory checklist and review counts.
-10. Treat gating output as advisory; the assistant does not decide whether a commit may proceed.
-11. Unstaged, untracked, or unrelated dirty-tree files are informational only and must not block a staged commit.
-12. Commit-readiness output must include traceability:
+10. **Interactive review step-through** — if the risk reviewer returned any findings:
+    a. Present the findings table to the user.
+    b. Ask the user whether they would like to step through the review issues one by one.
+    c. If the user declines, treat all issues as acknowledged and continue.
+    d. If the user accepts, iterate through each issue in sequence:
+       - Display: the issue title, full description, impacted requirements (if any), and the concrete suggested fix from the reviewer.
+       - Ask the user to choose one of: **Apply fix** / **Fix it myself** / **Ignore**.
+       - *Apply fix*: apply the change as described by the reviewer, confirm the change to the user, then move to the next issue.
+       - *Fix it myself*: pause and wait for the user to confirm they have applied the fix before moving to the next issue.
+       - *Ignore*: acknowledge the issue as deliberately skipped and move to the next issue.
+    e. After all issues have been addressed (applied, self-fixed, or ignored), summarise the outcome: how many were applied, self-fixed, or ignored.
+    f. Review items shown in this step-through must come exclusively from the `pair-programmer-risk-reviewer` subagent. Never surface items that describe uncovered requirements — those are not code review findings.
+11. Treat gating output as advisory; the assistant does not decide whether a commit may proceed.
+12. Unstaged, untracked, or unrelated dirty-tree files are informational only and must not block a staged commit.
+13. Commit-readiness output must include traceability:
    - names of skills/subagents invoked
    - invocation order
    - whether each invocation succeeded, failed, or was unavailable
