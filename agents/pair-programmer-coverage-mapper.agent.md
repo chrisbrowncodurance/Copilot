@@ -33,7 +33,7 @@ You map requirements to concrete evidence in code and tests.
    - compute unlogged commits (`branch - logged`)
    - inspect each unlogged commit (`git show`) to infer intent and requirement impact
    - ignore unstaged and untracked files entirely
-5. Return findings only; never modify checklist files.
+5. Return findings only; never write, create, or modify any files — including checklist files, temporary files, or any other files in the repository or working directory.
 
 ## Output format
 
