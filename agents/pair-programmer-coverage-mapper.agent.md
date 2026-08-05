@@ -23,6 +23,7 @@ You map requirements to concrete evidence in code and tests.
 1. Build an evidence map per requirement:
    - implementation evidence (files, symbols, key changed lines)
    - test evidence (new/updated tests tied to behaviour)
+   - **literal text verification: where a requirement contains quoted user-facing text (notification strings, error messages, labels, or any verbatim copy), perform a code search (grep or equivalent) to confirm the exact string — or its resource key value — exists in the codebase. If the search finds no match, set `confidence` to `low` and include a `TEXT NOT FOUND` flag in the evidence list. Never mark such a requirement as `✅ Covered` without a positive search result.**
 2. Identify partial coverage and missing evidence.
 3. Detect regressions where prior evidence disappeared.
 4. Reconcile branch commits against the checklist coverage log when previous status is provided:

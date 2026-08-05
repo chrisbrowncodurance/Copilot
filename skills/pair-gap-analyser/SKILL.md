@@ -21,6 +21,7 @@ Identify what is missing between requirements and implementation evidence.
    - `🔄 In progress` when partial evidence exists
    - `⬜ Not started` when no evidence exists
    - `❌ Regression` when previously covered evidence is now absent
+   - **For any requirement that contains quoted literal text (notification strings, error messages, labels, or verbatim user-facing copy), `✅ Covered` requires confirmed code search evidence that the exact string (or its resource key value) exists in the codebase. A file reference alone is not sufficient. If a `TEXT NOT FOUND` flag appears in the coverage mapper evidence, the requirement must remain `🔄 In progress` or `⬜ Not started` regardless of other evidence.**
 2. Prefer tests + implementation evidence over implementation-only evidence.
 3. Flag weak evidence explicitly (for example, only TODO comments or renamed files with no behavioural proof).
 4. If reconciliation reports `missing-log-entries`, add a top-priority gap: `commit-log-out-of-sync`.

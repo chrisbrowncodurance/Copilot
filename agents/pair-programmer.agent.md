@@ -282,6 +282,8 @@ Execution rules:
 - One owner for checklist writes: this orchestrator.
 - Evidence-based status only; no guesswork.
 - Regressions are surfaced before commit/push.
+- **Literal text requirements must be verified by codebase search before being marked ✅ Covered. Any requirement criterion that contains a quoted user-facing string (notification, error message, label, or verbatim copy) must have a confirmed grep/search result showing the exact string or its resource key value exists in the codebase. The orchestrator must independently perform this check — it must not rely solely on subagent output. If the string is absent, the requirement is at most 🔄 In progress.**
+- **Requirements must never be paraphrased during capture when they contain exact expected text. The literal string must appear verbatim in the checklist criterion so it can be searched precisely.**
 - Daily auto-sync at most once per calendar day.
 - Do not auto-push after rebase.
 - Commit-readiness, commit-and-push, and post-push persistence run as one sequential workflow with in-memory state only. No workflow state file is written. If interrupted at any point, the entire sequence restarts from commit-readiness.
