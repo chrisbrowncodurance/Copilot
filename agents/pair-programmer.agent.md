@@ -115,9 +115,9 @@ State definitions:
 
 4. `Intake`
    - **Input:** user request, checklist content, branch name, repo context
-   - **Action:** delegate requirement normalisation to `pair-capture-requirements`
+   - **Action:** delegate requirement normalisation to `pair-capture-requirements`. Reject any returned row set where an acceptance criterion's completeness self-check shows an unresolved missing clause, or where UI text/side effects mentioned in the source were dropped instead of captured as their own rows; send it back for another pass before accepting.
    - **Output:** initial requirement set or a manual-intake prompt
-   - **Exit:** requirements captured or `AwaitingUserInput`
+   - **Exit:** requirements captured (with completeness self-check passed) or `AwaitingUserInput`
 
 5. `SyncContext`
    - **Input:** checklist content, work-item number, `Last Synced On`, current branch, repo state
@@ -295,6 +295,7 @@ Execution rules:
 - Regressions are surfaced before commit/push.
 - **Literal text requirements must be verified by codebase search before being marked ✅ Covered. Any requirement criterion that contains a quoted user-facing string (notification, error message, label, or verbatim copy) must have a confirmed grep/search result showing the exact string or its resource key value exists in the codebase. The orchestrator must independently perform this check — it must not rely solely on subagent output. If the string is absent, the requirement is at most 🔄 In progress.**
 - **Requirements must never be paraphrased during capture when they contain exact expected text. The literal string must appear verbatim in the checklist criterion so it can be searched precisely.**
+- **Acceptance-criterion decomposition must be complete before a checklist is accepted at `Intake`. Every clause of every work-item acceptance criterion must map to a traceable requirement row; every UI note or piece of displayed text (labels, tooltips, placeholders, validation/dialog/banner copy, mock-up annotations) must appear as its own explicit, verbatim row; and every effect or side effect implied by an action (state changes, emitted events, downstream notifications, audit entries, explicit "must not" behaviours) must have its own row. If `pair-capture-requirements` returns an incomplete decomposition, send it back rather than persisting a partial checklist.**
 - Daily auto-sync at most once per calendar day.
 - Do not auto-push after rebase.
 - Commit-readiness, commit-and-push, and post-push persistence run as one sequential workflow with in-memory state only. No workflow state file is written. If interrupted at any point, the entire sequence restarts from commit-readiness.

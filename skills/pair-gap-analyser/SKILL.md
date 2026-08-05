@@ -28,6 +28,8 @@ Identify what is missing between requirements and implementation evidence.
 5. For each unlogged commit, include the inferred intent and requirement impact in the gap notes.
 6. Do not persist file updates; return an in-memory snapshot only.
 7. Do not let unrelated unstaged or untracked files change requirement status or gap priority.
+8. Treat any `[CLARIFICATION NEEDED: ...]` note left by capture as an open gap, never as implicitly resolved — surface it every time until the checklist note is replaced with real content.
+9. If a requirement row describes an action but has no sibling row for its stated side effect (emitted event, notification, audit entry, state transition), or a UI-text requirement has no verbatim quoted string, flag `incomplete-decomposition` as a gap so it routes back to `pair-capture-requirements` rather than being silently scored against weak evidence.
 
 ## Output
 
