@@ -263,12 +263,23 @@ Execution rules:
    Do not run `pair-done-gate` in this state.
 11. Run `pair-done-gate` with checklist + risk results + user decisions only when reconciliation is `clean`.
 12. Show updated in-memory checklist and review counts.
-13. If the risk reviewer returned findings, present the findings table and step through them one by one only if the user asks.
+13. **Interactive review step-through** — if the risk reviewer returned any findings:
+    a. Present the findings table to the user.
+    b. Ask the user whether they would like to step through the review issues one by one.
+    c. If the user declines, treat all issues as acknowledged and continue.
+    d. If the user accepts, iterate through each issue in sequence:
+       - Display: the issue title, full description, impacted requirements (if any), and the concrete suggested fix from the reviewer.
+       - Ask the user to choose one of: **Apply fix** / **Fix it myself** / **Ignore**.
+       - *Apply fix*: apply the change as described by the reviewer, confirm the change to the user, then move to the next issue.
+       - *Fix it myself*: pause and wait for the user to confirm they have applied the fix before moving to the next issue.
+       - *Ignore*: acknowledge the issue as deliberately skipped and move to the next issue.
+    e. After all issues have been addressed (applied, self-fixed, or ignored), summarise the outcome: how many were applied, self-fixed, or ignored.
+    f. Review items shown in this step-through must come exclusively from the `pair-programmer-risk-reviewer` subagent. Never surface items that describe uncovered requirements — those are not code review findings.
 14. Treat gating output as advisory; the assistant does not decide whether a commit may proceed.
 15. Unstaged, untracked, or unrelated dirty-tree files are informational only and must not block a staged commit.
 16. When committing:
    - call `git-commit-message`
-   - create the commit
+   - create the commit with the user-approved message
    - record `commit_sha`
 17. Before pull, stash non-staged work if needed and record whether a stash entry was created.
 18. Pull or pull --rebase when requested. If pull fails, restore the stash when present and stop.
