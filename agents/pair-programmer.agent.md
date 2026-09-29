@@ -76,6 +76,7 @@ Use these skills:
 - `pair-gap-analyser`
 - `pair-next-step-planner`
 - `pair-done-gate`
+- `pair-commit-push`
 
 Use these subagents:
 - `pair-programmer-coverage-mapper`
@@ -201,100 +202,16 @@ When the user asks "what should I do next?", "suggest a next step", or similar:
 5. If `pair-next-step-planner` is not available as a skill, state that clearly and do not try to launch it as a subagent.
 6. Return exactly one concrete next step.
 
-### Commit path state machine
+### Commit, push, and merge-readiness workflow
 
-States:
-`CommitReadinessGate -> FocusedValidation -> Commit -> Pull -> Push -> Idle`
+For commit, push, or ready-for-merge requests, invoke `pair-commit-push`.
 
-State definitions:
+Pass the current in-memory checklist snapshot and coordinate its requested skills and subagents. The workflow may derive
+temporary requirement statuses for its readiness decision, but it must never persist the checklist, coverage snapshot,
+requirement statuses, recorded commit count, or commit coverage.
 
-1. `CommitReadinessGate`
-   - **Input:** staged index only
-   - **Action:** inspect `git diff --cached` and `git diff --cached --name-only`; run the coverage mapper and risk reviewer in parallel
-   - **Output:** readiness verdict, coverage reconciliation, risk findings
-   - **Exit:** ready to validate, blocked, or not-ready
-
-2. `FocusedValidation`
-   - **Input:** staged diff, checklist snapshot, coverage reconciliation, risk findings
-   - **Action:** run `pair-gap-analyser`, then run `pair-done-gate` when reconciliation is clean or reports a changed branch count
-   - **Output:** merged readiness decision and reviewer guidance
-   - **Exit:** ready to commit, blocked, or awaiting user action
-
-3. `Commit`
-   - **Input:** approved staged changes and commit message
-   - **Action:** call `git-commit-message` and create the commit
-   - **Output:** successful commit result
-   - **Exit:** commit recorded or blocked
-
-4. `Pull`
-   - **Input:** successful commit result and current branch state
-   - **Action:** stash non-staged work if needed, then run `git pull` or `git pull --rebase` when requested
-   - **Output:** updated branch state and optional stash reference
-   - **Exit:** pull succeeded or blocked
-
-5. `Push`
-   - **Input:** committed changes and pulled branch state
-   - **Action:** push the branch to the remote
-   - **Output:** push result
-   - **Exit:** push succeeded or blocked
-
-6. `Idle`
-   - **Input:** completed commit workflow
-   - **Action:** do nothing until the next user request
-   - **Output:** stable end state
-   - **Exit:** none
-
-Execution rules:
-1. Treat this as one uninterrupted sequence.
-2. Hold all workflow state in memory only.
-3. If the user interrupts at any point, restart from `CommitReadinessGate` next time.
-4. Build the readiness snapshot from the staged index only.
-5. Use `git diff --cached` and `git diff --cached --name-only` as the only diff sources for readiness.
-6. Do not inspect `git status`, unstaged files, or untracked files for commit readiness.
-7. Parallelise independent analysis using subagents:
-   - coverage mapping (`pair-programmer-coverage-mapper`) with:
-     - `analysis_scope=staged_index`
-     - `baseline_ref=origin/develop`
-     - `diff_patch_command=git diff --cached`
-     - `diff_names_command=git diff --cached --name-only`
-   - risk review (`pair-programmer-risk-reviewer`)
-8. If either subagent fails, is unavailable, or returns unusable output, return:
-   - gate decision: `not-ready`
-   - blocker: `workflow-blocked`
-   - exact next action to restore the missing subagent result
-   Do not run `pair-gap-analyser` or `pair-done-gate` in this state.
-9. Run `pair-gap-analyser` on merged staged-only subagent findings and always pass coverage reconciliation output (`reconciliation_status`, `current_branch_commit_count`, `recorded_branch_commit_count`, `reassessment_required`) into `pair-gap-analyser`.
-10. If `reassessment_required` is true:
-   - report that persisted branch coverage is stale
-   - continue readiness analysis using staged evidence in memory only
-   - do not update the checklist or block commit, push, or ready-for-merge guidance
-11. Run `pair-done-gate` with checklist + risk results + user decisions when reconciliation is `clean` or `branch-changed`; a changed commit count is informational in this workflow.
-12. Show updated in-memory checklist and review counts.
-13. **Interactive review step-through** — if the risk reviewer returned any findings:
-    a. Present the findings table to the user.
-    b. Ask the user whether they would like to step through the review issues one by one.
-    c. If the user declines, treat all issues as acknowledged and continue.
-    d. If the user accepts, iterate through each issue in sequence:
-       - Display: the issue title, full description, impacted requirements (if any), and the concrete suggested fix from the reviewer.
-       - Ask the user to choose one of: **Apply fix** / **Fix it myself** / **Ignore**.
-       - *Apply fix*: apply the change as described by the reviewer, confirm the change to the user, then move to the next issue.
-       - *Fix it myself*: pause and wait for the user to confirm they have applied the fix before moving to the next issue.
-       - *Ignore*: acknowledge the issue as deliberately skipped and move to the next issue.
-    e. After all issues have been addressed (applied, self-fixed, or ignored), summarise the outcome: how many were applied, self-fixed, or ignored.
-    f. Review items shown in this step-through must come exclusively from the `pair-programmer-risk-reviewer` subagent. Never surface items that describe uncovered requirements — those are not code review findings.
-14. Treat gating output as advisory; the assistant does not decide whether a commit may proceed.
-15. Unstaged, untracked, or unrelated dirty-tree files are informational only and must not block a staged commit.
-16. When committing:
-   - call `git-commit-message`
-   - create the commit with the user-approved message
-   - retain only whether the commit succeeded
-   - do not record commit coverage or update the requirements checklist
-17. Before pull, stash non-staged work if needed and record whether a stash entry was created.
-18. Pull or pull --rebase when requested. If pull fails, restore the stash when present and stop.
-19. Push. If push fails, restore the stash when present and stop.
-20. Do not update the requirements checklist, coverage snapshot, requirement statuses, or recorded commit count during commit, push, or ready-for-merge workflows.
-21. After push succeeds, always include an explicit offer to run `git-rebase-develop` in the final user-facing response.
-22. Restore the stash when present after the workflow finishes, whether it succeeds or fails.
+If the skill is unavailable, stop with `workflow-blocked` and state that `pair-commit-push` must be restored. Do not
+reimplement the workflow from memory.
 
 ## Non-negotiable rules
 
