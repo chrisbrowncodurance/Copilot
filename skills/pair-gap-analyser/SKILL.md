@@ -12,7 +12,7 @@ Identify what is missing between requirements and implementation evidence.
 - Merged requirement list (`WI-*`, `UR-*`) from staged analysis
 - Evidence map from staged coverage analysis
 - Previous checklist state
-- Coverage reconciliation block (`reconciliation_status`, `unlogged_commits`)
+- Coverage reconciliation block (`reconciliation_status`, `current_branch_commit_count`, `recorded_branch_commit_count`, `reassessment_required`)
 
 ## Rules
 
@@ -24,8 +24,8 @@ Identify what is missing between requirements and implementation evidence.
    - **For any requirement that contains quoted literal text (notification strings, error messages, labels, or verbatim user-facing copy), `✅ Covered` requires confirmed code search evidence that the exact string (or its resource key value) exists in the codebase. A file reference alone is not sufficient. If a `TEXT NOT FOUND` flag appears in the coverage mapper evidence, the requirement must remain `🔄 In progress` or `⬜ Not started` regardless of other evidence.**
 2. Prefer tests + implementation evidence over implementation-only evidence.
 3. Flag weak evidence explicitly (for example, only TODO comments or renamed files with no behavioural proof).
-4. If reconciliation reports `missing-log-entries`, add a top-priority gap: `commit-log-out-of-sync`.
-5. For each unlogged commit, include the inferred intent and requirement impact in the gap notes.
+4. If `reassessment_required` is true, add a top-priority gap: `branch-coverage-snapshot-out-of-date`.
+5. Require a complete branch reassessment and replacement coverage snapshot; never request per-commit analysis or commit IDs.
 6. Do not persist file updates; return an in-memory snapshot only.
 7. Do not let unrelated unstaged or untracked files change requirement status or gap priority.
 8. Treat any `[CLARIFICATION NEEDED: ...]` note left by capture as an open gap, never as implicitly resolved — surface it every time until the checklist note is replaced with real content.
@@ -37,4 +37,4 @@ Return:
 - updated in-memory checklist rows with status and notes
 - explicit gap list ordered by highest delivery risk first
 - regression list with prior vs current evidence summary
-- reconciliation gap summary, including all unlogged commits
+- reconciliation gap summary, including recorded and current branch commit counts

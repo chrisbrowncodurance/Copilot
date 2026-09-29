@@ -39,6 +39,10 @@ Use this exact structure so you can reliably parse it:
 Number: <work-item-number-or-empty>
 Last Synced On: <YYYY-MM-DD-or-empty>
 
+## Branch Coverage
+Recorded Commit Count: <non-negative-integer-or-empty>
+Last Assessed On: <YYYY-MM-DD-or-empty>
+
 ## Feature Description
 <description>
 
@@ -56,11 +60,11 @@ Last Synced On: <YYYY-MM-DD-or-empty>
 |---|----------------------|--------|-------|
 | 1 | <criterion text>     | ⬜ Not started | Added by user |
 
-## Coverage History
-<!-- Append an entry after each commit assessment. Each entry must state which WI/UR items the commit covers, partially covers, or regresses. -->
-- <ISO date> — Commit `<short SHA>`: WI-1 covered; WI-3 in progress; UR-1 regressed. Evidence: `src/Foo.cs`, `tests/BarTests.cs`
+## Coverage Snapshot
+<!-- Replace this snapshot after a full branch reassessment. Never store commit IDs. -->
+- WI-1 covered; WI-3 in progress; UR-1 regressed. Evidence: `src/Foo.cs`, `tests/BarTests.cs`
 
-Each history entry is invalid unless it names the affected WI/UR items and their coverage state.
+The snapshot is invalid unless it names the affected WI/UR items and their coverage state.
 
 Keep **Work Item Requirements** and **User Requirements** in separate sections.
 Display can merge them as `WI-<index>` and `UR-<index>`.
@@ -91,7 +95,7 @@ Rules:
 ### Session start state machine
 
 States:
-`ResolveBranch -> ResolveChecklist -> LoadChecklist -> Intake -> SyncContext -> BuildChecklist -> ValidateReady -> Idle`
+`ResolveBranch -> ResolveChecklist -> LoadChecklist -> Intake -> SyncContext -> BuildChecklist -> ReconcileCoverage -> ValidateReady -> Idle`
 
 State definitions:
 
@@ -131,13 +135,19 @@ State definitions:
    - **Output:** updated checklist model
    - **Exit:** checklist changes prepared for persistence
 
-7. `ValidateReady`
+7. `ReconcileCoverage`
+   - **Input:** updated checklist, current branch, and `origin/develop`
+   - **Action:** compare the recorded branch commit count with `git rev-list --count origin/develop..HEAD`; when different, reassess the complete branch diff and replace the persisted coverage snapshot
+   - **Output:** current branch coverage snapshot and matching recorded commit count
+   - **Exit:** `ValidateReady` or `Blocked`
+
+8. `ValidateReady`
    - **Input:** updated checklist, repo state, and captured requirements
    - **Action:** decide whether the session can proceed, must ask one clarifying question, or must stop because a blocker remains
    - **Output:** ready, needs-input, or blocked decision
    - **Exit:** `Idle`, `AwaitingUserInput`, or `Blocked`
 
-8. `Idle`
+9. `Idle`
    - **Input:** completed session state
    - **Action:** do nothing until the next user request
    - **Output:** stable end state
@@ -153,17 +163,18 @@ Execution rules:
 6. `Intake` delegates requirement normalisation to `pair-capture-requirements`.
 7. `SyncContext` runs only when a work-item number exists and `Last Synced On` is not today; otherwise it transitions straight to `BuildChecklist`.
 8. If sync fails or intake cannot establish enough context, transition to `Blocked`.
-9. `BuildChecklist` writes only orchestrator-approved updates to the checklist.
+9. `BuildChecklist` writes only orchestrator-approved updates to the checklist, then transitions to `ReconcileCoverage`.
 10. Never mutate **User Requirements** unless the user explicitly asks.
 11. `ValidateReady` decides whether the session can proceed or must ask one clarifying question.
-12. If a work-item sync ran during this session, run branch-commit reconciliation once using `pair-programmer-coverage-mapper` with:
+12. Run branch-count reconciliation once per session using `pair-programmer-coverage-mapper` with:
    - `analysis_scope=branch_commits`
    - `baseline_ref=origin/develop`
    - `diff_patch_command=git diff origin/develop...HEAD`
    - `diff_names_command=git diff origin/develop...HEAD --name-only`
-13. If reconciliation returns `stale_logged_commit_ids`, remove those SHAs from `## Coverage History` before writing anything else.
-14. If reconciliation returns `missing-log-entries`, append every `proposed_log_entry` to `## Coverage History` and save the checklist before showing it.
-15. If reconciliation returns `blocked`, stop and report the exact recovery action.
+13. Compare `current_branch_commit_count` with `Recorded Commit Count`.
+14. If the counts differ, require the mapper to reassess the entire branch diff, replace `## Coverage Snapshot`, update all evidence-based requirement statuses, and set `Recorded Commit Count` to `current_branch_commit_count`.
+15. If the checklist uses the legacy `## Coverage History` format or contains commit IDs, treat it as out of date, reassess the entire branch, and replace that section with `## Coverage Snapshot` without retaining any commit IDs.
+16. If reconciliation returns `blocked`, stop and report the exact recovery action.
 
 ### Showing progress
 When the user asks "show requirements", "what have we done?", "show checklist", or similar:
@@ -183,14 +194,15 @@ When the user asks "what should I do next?", "suggest a next step", or similar:
    - `baseline_ref=origin/develop`
    - `diff_patch_command=git diff origin/develop...HEAD`
    - `diff_names_command=git diff origin/develop...HEAD --name-only`
-3. Use the `skill` tool with `pair-next-step-planner` for the step recommendation.
-4. If `pair-next-step-planner` is not available as a skill, state that clearly and do not try to launch it as a subagent.
-5. Return exactly one concrete next step.
+3. If the recorded and current commit counts differ, replace the persisted branch coverage snapshot before planning the next step.
+4. Use the `skill` tool with `pair-next-step-planner` for the step recommendation.
+5. If `pair-next-step-planner` is not available as a skill, state that clearly and do not try to launch it as a subagent.
+6. Return exactly one concrete next step.
 
 ### Commit path state machine
 
 States:
-`CommitReadinessGate -> FocusedValidation -> Commit -> Pull -> Push -> PostPushRecord -> Idle`
+`CommitReadinessGate -> FocusedValidation -> Commit -> Pull -> Push -> PostPushReassessment -> Idle`
 
 State definitions:
 
@@ -209,11 +221,11 @@ State definitions:
 3. `Commit`
    - **Input:** approved staged changes and commit message
    - **Action:** call `git-commit-message` and create the commit
-   - **Output:** `commit_sha`
+   - **Output:** successful commit result
    - **Exit:** commit recorded or blocked
 
 4. `Pull`
-   - **Input:** commit SHA and current branch state
+   - **Input:** successful commit result and current branch state
    - **Action:** stash non-staged work if needed, then run `git pull` or `git pull --rebase` when requested
    - **Output:** updated branch state and optional stash reference
    - **Exit:** pull succeeded or blocked
@@ -224,10 +236,10 @@ State definitions:
    - **Output:** push result
    - **Exit:** push succeeded or blocked
 
-6. `PostPushRecord`
-   - **Input:** successful push result, commit SHA, checklist snapshot
-   - **Action:** persist checklist requirement statuses and append one coverage history entry for the commit
-   - **Output:** persisted checklist and recorded history
+6. `PostPushReassessment`
+   - **Input:** successful push result and checklist snapshot
+   - **Action:** reassess the complete branch against `origin/develop`, persist requirement statuses, replace the coverage snapshot, and record the current branch commit count
+   - **Output:** persisted checklist and current branch coverage snapshot
    - **Exit:** persistence complete
 
 7. `Idle`
@@ -246,6 +258,7 @@ Execution rules:
 7. Parallelise independent analysis using subagents:
    - coverage mapping (`pair-programmer-coverage-mapper`) with:
      - `analysis_scope=staged_index`
+     - `baseline_ref=origin/develop`
      - `diff_patch_command=git diff --cached`
      - `diff_names_command=git diff --cached --name-only`
    - risk review (`pair-programmer-risk-reviewer`)
@@ -254,13 +267,12 @@ Execution rules:
    - blocker: `workflow-blocked`
    - exact next action to restore the missing subagent result
    Do not run `pair-gap-analyser` or `pair-done-gate` in this state.
-9. Run `pair-gap-analyser` on merged staged-only subagent findings and always pass coverage reconciliation output (`reconciliation_status`, `unlogged_commits`) into `pair-gap-analyser`.
-10. If `reconciliation_status` is `missing-log-entries`, return:
-   - gate decision: `not-ready`
-   - blocker: `commit-log-out-of-sync`
-   - exact next action: update `## Coverage History` with all `proposed_log_entry` rows for unlogged commits, including the WI/UR items each commit covers
-   - list of unlogged commits with inferred intent and coverage impact
-   Do not run `pair-done-gate` in this state.
+9. Run `pair-gap-analyser` on merged staged-only subagent findings and always pass coverage reconciliation output (`reconciliation_status`, `current_branch_commit_count`, `recorded_branch_commit_count`, `reassessment_required`) into `pair-gap-analyser`.
+10. If `reassessment_required` is true:
+   - reassess the complete branch diff rather than individual commits
+   - replace `## Coverage Snapshot` with the mapper's current branch evidence
+   - update `Recorded Commit Count` to `current_branch_commit_count`
+   - treat reconciliation as `clean` only after the replacement snapshot and matching count have been persisted
 11. Run `pair-done-gate` with checklist + risk results + user decisions only when reconciliation is `clean`.
 12. Show updated in-memory checklist and review counts.
 13. **Interactive review step-through** — if the risk reviewer returned any findings:
@@ -280,11 +292,11 @@ Execution rules:
 16. When committing:
    - call `git-commit-message`
    - create the commit with the user-approved message
-   - record `commit_sha`
+   - retain only whether the commit succeeded; do not record or persist its commit ID
 17. Before pull, stash non-staged work if needed and record whether a stash entry was created.
 18. Pull or pull --rebase when requested. If pull fails, restore the stash when present and stop.
 19. Push. If push fails, restore the stash when present and stop.
-20. Only after push succeeds, persist checklist requirement statuses to `.copilot/requirements/<branch-name>.md` and append one `## Coverage History` entry for `commit_sha`.
+20. Only after push succeeds, run a complete branch reassessment against `origin/develop`, persist checklist requirement statuses to `.copilot/requirements/<branch-name>.md`, replace `## Coverage Snapshot`, and update `Recorded Commit Count`. Never persist commit IDs.
 21. After checklist persistence is complete, always include an explicit offer to run `git-rebase-develop` in the final user-facing response.
 22. Restore the stash when present after the workflow finishes, whether it succeeds or fails.
 
@@ -292,6 +304,8 @@ Execution rules:
 
 - One owner for checklist writes: this orchestrator.
 - Evidence-based status only; no guesswork.
+- Persist only the number of commits on the branch relative to `origin/develop`; never persist commit IDs, short SHAs, hashes, or per-commit coverage entries.
+- A mismatch between `Recorded Commit Count` and the current branch commit count invalidates the stored coverage snapshot. Reassess the whole branch and replace the snapshot before using it.
 - Regressions are surfaced before commit/push.
 - **Literal text requirements must be verified by codebase search before being marked ✅ Covered. Any requirement criterion that contains a quoted user-facing string (notification, error message, label, or verbatim copy) must have a confirmed grep/search result showing the exact string or its resource key value exists in the codebase. The orchestrator must independently perform this check — it must not rely solely on subagent output. If the string is absent, the requirement is at most 🔄 In progress.**
 - **Requirements must never be paraphrased during capture when they contain exact expected text. The literal string must appear verbatim in the checklist criterion so it can be searched precisely.**
