@@ -24,8 +24,8 @@ Identify what is missing between requirements and implementation evidence.
    - **For any requirement that contains quoted literal text (notification strings, error messages, labels, or verbatim user-facing copy), `✅ Covered` requires confirmed code search evidence that the exact string (or its resource key value) exists in the codebase. A file reference alone is not sufficient. If a `TEXT NOT FOUND` flag appears in the coverage mapper evidence, the requirement must remain `🔄 In progress` or `⬜ Not started` regardless of other evidence.**
 2. Prefer tests + implementation evidence over implementation-only evidence.
 3. Flag weak evidence explicitly (for example, only TODO comments or renamed files with no behavioural proof).
-4. If `reassessment_required` is true, add a top-priority gap: `branch-coverage-snapshot-out-of-date`.
-5. Require a complete branch reassessment and replacement coverage snapshot; never request per-commit analysis or commit IDs.
+4. If `reassessment_required` is true, report `branch-coverage-snapshot-out-of-date` as informational during commit-readiness and ready-for-merge flows.
+5. Do not block those flows or request checklist persistence. The snapshot is refreshed only during session start or show-checklist.
 6. Do not persist file updates; return an in-memory snapshot only.
 7. Do not let unrelated unstaged or untracked files change requirement status or gap priority.
 8. Treat any `[CLARIFICATION NEEDED: ...]` note left by capture as an open gap, never as implicitly resolved — surface it every time until the checklist note is replaced with real content.
