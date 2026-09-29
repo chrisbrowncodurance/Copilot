@@ -180,10 +180,12 @@ Execution rules:
 When the user asks "show requirements", "what have we done?", "show checklist", or similar:
 
 1. Load the checklist file.
-2. Merge Work Item Requirements and User Requirements into a single display list, preserving status and notes for each entry.
-3. Label each merged row with its source (WI or UR) and original index (for example: WI-2, UR-1).
-4. Print the merged list with criterion texts and statuses. Always include criterion texts.
-5. Summarise totals across the merged list: "3 of 5 requirements covered. 1 in progress. 1 regression detected."
+2. Run branch-count reconciliation using `pair-programmer-coverage-mapper`.
+3. If the recorded and current commit counts differ, reassess the entire branch, replace `## Coverage Snapshot`, update evidence-based requirement statuses, and set `Recorded Commit Count` to the current count.
+4. Merge Work Item Requirements and User Requirements into a single display list, preserving status and notes for each entry.
+5. Label each merged row with its source (WI or UR) and original index (for example: WI-2, UR-1).
+6. Print the merged list with criterion texts and statuses. Always include criterion texts.
+7. Summarise totals across the merged list: "3 of 5 requirements covered. 1 in progress. 1 regression detected."
 
 ### Next-step mode
 When the user asks "what should I do next?", "suggest a next step", or similar:
@@ -194,7 +196,7 @@ When the user asks "what should I do next?", "suggest a next step", or similar:
    - `baseline_ref=origin/develop`
    - `diff_patch_command=git diff origin/develop...HEAD`
    - `diff_names_command=git diff origin/develop...HEAD --name-only`
-3. If the recorded and current commit counts differ, replace the persisted branch coverage snapshot before planning the next step.
+3. Use the fresh coverage snapshot in memory only. Do not update the requirements checklist or recorded commit count.
 4. Use the `skill` tool with `pair-next-step-planner` for the step recommendation.
 5. If `pair-next-step-planner` is not available as a skill, state that clearly and do not try to launch it as a subagent.
 6. Return exactly one concrete next step.
@@ -202,7 +204,7 @@ When the user asks "what should I do next?", "suggest a next step", or similar:
 ### Commit path state machine
 
 States:
-`CommitReadinessGate -> FocusedValidation -> Commit -> Pull -> Push -> PostPushReassessment -> Idle`
+`CommitReadinessGate -> FocusedValidation -> Commit -> Pull -> Push -> Idle`
 
 State definitions:
 
@@ -214,7 +216,7 @@ State definitions:
 
 2. `FocusedValidation`
    - **Input:** staged diff, checklist snapshot, coverage reconciliation, risk findings
-   - **Action:** run `pair-gap-analyser` and, when reconciliation is clean, `pair-done-gate`
+   - **Action:** run `pair-gap-analyser`, then run `pair-done-gate` when reconciliation is clean or reports a changed branch count
    - **Output:** merged readiness decision and reviewer guidance
    - **Exit:** ready to commit, blocked, or awaiting user action
 
@@ -236,13 +238,7 @@ State definitions:
    - **Output:** push result
    - **Exit:** push succeeded or blocked
 
-6. `PostPushReassessment`
-   - **Input:** successful push result and checklist snapshot
-   - **Action:** reassess the complete branch against `origin/develop`, persist requirement statuses, replace the coverage snapshot, and record the current branch commit count
-   - **Output:** persisted checklist and current branch coverage snapshot
-   - **Exit:** persistence complete
-
-7. `Idle`
+6. `Idle`
    - **Input:** completed commit workflow
    - **Action:** do nothing until the next user request
    - **Output:** stable end state
@@ -269,11 +265,10 @@ Execution rules:
    Do not run `pair-gap-analyser` or `pair-done-gate` in this state.
 9. Run `pair-gap-analyser` on merged staged-only subagent findings and always pass coverage reconciliation output (`reconciliation_status`, `current_branch_commit_count`, `recorded_branch_commit_count`, `reassessment_required`) into `pair-gap-analyser`.
 10. If `reassessment_required` is true:
-   - reassess the complete branch diff rather than individual commits
-   - replace `## Coverage Snapshot` with the mapper's current branch evidence
-   - update `Recorded Commit Count` to `current_branch_commit_count`
-   - treat reconciliation as `clean` only after the replacement snapshot and matching count have been persisted
-11. Run `pair-done-gate` with checklist + risk results + user decisions only when reconciliation is `clean`.
+   - report that persisted branch coverage is stale
+   - continue readiness analysis using staged evidence in memory only
+   - do not update the checklist or block commit, push, or ready-for-merge guidance
+11. Run `pair-done-gate` with checklist + risk results + user decisions when reconciliation is `clean` or `branch-changed`; a changed commit count is informational in this workflow.
 12. Show updated in-memory checklist and review counts.
 13. **Interactive review step-through** — if the risk reviewer returned any findings:
     a. Present the findings table to the user.
@@ -292,12 +287,13 @@ Execution rules:
 16. When committing:
    - call `git-commit-message`
    - create the commit with the user-approved message
-   - retain only whether the commit succeeded; do not record or persist its commit ID
+   - retain only whether the commit succeeded
+   - do not record commit coverage or update the requirements checklist
 17. Before pull, stash non-staged work if needed and record whether a stash entry was created.
 18. Pull or pull --rebase when requested. If pull fails, restore the stash when present and stop.
 19. Push. If push fails, restore the stash when present and stop.
-20. Only after push succeeds, run a complete branch reassessment against `origin/develop`, persist checklist requirement statuses to `.copilot/requirements/<branch-name>.md`, replace `## Coverage Snapshot`, and update `Recorded Commit Count`. Never persist commit IDs.
-21. After checklist persistence is complete, always include an explicit offer to run `git-rebase-develop` in the final user-facing response.
+20. Do not update the requirements checklist, coverage snapshot, requirement statuses, or recorded commit count during commit, push, or ready-for-merge workflows.
+21. After push succeeds, always include an explicit offer to run `git-rebase-develop` in the final user-facing response.
 22. Restore the stash when present after the workflow finishes, whether it succeeds or fails.
 
 ## Non-negotiable rules
@@ -306,14 +302,15 @@ Execution rules:
 - Evidence-based status only; no guesswork.
 - Persist only the number of commits on the branch relative to `origin/develop`; never persist commit IDs, short SHAs, hashes, or per-commit coverage entries.
 - A mismatch between `Recorded Commit Count` and the current branch commit count invalidates the stored coverage snapshot. Reassess the whole branch and replace the snapshot before using it.
+- Persist branch coverage only during session start or the show-checklist flow. Commit, push, commit-readiness, and ready-for-merge workflows must never update the requirements document.
 - Regressions are surfaced before commit/push.
 - **Literal text requirements must be verified by codebase search before being marked ✅ Covered. Any requirement criterion that contains a quoted user-facing string (notification, error message, label, or verbatim copy) must have a confirmed grep/search result showing the exact string or its resource key value exists in the codebase. The orchestrator must independently perform this check — it must not rely solely on subagent output. If the string is absent, the requirement is at most 🔄 In progress.**
 - **Requirements must never be paraphrased during capture when they contain exact expected text. The literal string must appear verbatim in the checklist criterion so it can be searched precisely.**
 - **Acceptance-criterion decomposition must be complete before a checklist is accepted at `Intake`. Every clause of every work-item acceptance criterion must map to a traceable requirement row; every UI note or piece of displayed text (labels, tooltips, placeholders, validation/dialog/banner copy, mock-up annotations) must appear as its own explicit, verbatim row; and every effect or side effect implied by an action (state changes, emitted events, downstream notifications, audit entries, explicit "must not" behaviours) must have its own row. If `pair-capture-requirements` returns an incomplete decomposition, send it back rather than persisting a partial checklist.**
 - Daily auto-sync at most once per calendar day.
 - Do not auto-push after rebase.
-- Commit-readiness, commit-and-push, and post-push persistence run as one sequential workflow with in-memory state only. No workflow state file is written. If interrupted at any point, the entire sequence restarts from commit-readiness.
-- A successful commit/push workflow must end with an explicit rebase offer after checklist persistence.
+- Commit-readiness and commit-and-push run as one sequential workflow with in-memory state only. No workflow state or checklist update is written. If interrupted at any point, the entire sequence restarts from commit-readiness.
+- A successful commit/push workflow must end with an explicit rebase offer after push succeeds.
 - Subagents may analyse readiness, but never execute commit, pull, push, or checklist persistence steps.
 - UK English throughout.
 - The session-start workflow is mandatory and must be executed step by step in every session, regardless of how complete the checklist appears. A checklist with all items ✅ Covered is not a reason to skip steps 6–10. Skipping any step is a workflow violation.
