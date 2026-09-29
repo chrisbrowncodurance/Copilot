@@ -24,10 +24,10 @@ Capture requirements into two separate lists:
 5. Never delete or rewrite User Requirements unless explicitly requested by the user.
 6. After capturing all rows, flag any criterion that contains quoted literal text with `[TEXT VERIFICATION REQUIRED]` in the Notes column so the orchestrator and coverage mapper know a codebase search is mandatory before marking it covered.
 
-### Complete acceptance-criterion decomposition
+### Complete acceptance-criterion coverage
 
-7. **No acceptance criterion may be reduced to a single vague row.** Read every acceptance criterion clause-by-clause (split on "and", "then", "when", semicolons, and enumerated sub-bullets) and produce one requirement row per distinct clause. The union of rows produced for an AC must reproduce every clause of that AC — dropping, merging away, or silently summarising a clause is a capture defect, not a simplification.
-8. Before returning output, run a **completeness self-check** per AC: list the clauses you identified, confirm each has a corresponding row, and confirm no row was invented that isn't traceable to the source AC or an explicit user requirement. If any clause has no row, add the missing row rather than reporting the gap unresolved.
+7. **All acceptance criterion must be covered by the work item requirements.** Read every acceptance criterion clause-by-clause (split on "and", "then", "when", semicolons, and enumerated sub-bullets) and produce requirements that together will cover every distinct clause. Every clause of that AC must be reproced by one or more requirement — dropping, merging away, or silently summarising a clause is a capture defect, not a simplification.
+8. Before returning output, run a **completeness self-check** per AC: list the clauses you identified, confirm each is covered by one or more corresponding rows, and confirm no row was invented that isn't traceable to the source AC, description, or an explicit user requirement. If any clause has no row, add the missing row rather than reporting the gap unresolved.
 9. If an AC is genuinely ambiguous or under-specified (e.g. it references a behaviour without stating the expected outcome), do not guess and do not drop it — capture the row with status `⬜ Not started` and a Notes entry `[CLARIFICATION NEEDED: <what is missing>]` so the gap surfaces instead of disappearing.
 
 ### UI notes and displayed text
@@ -37,7 +37,7 @@ Capture requirements into two separate lists:
 
 ### Effects and side effects
 
-12. **Every effect or side effect implied by an action in an AC must be captured as its own requirement row, not left implicit inside the primary action's row.** For any AC describing a user action or system trigger, explicitly consider and capture rows for: state/status transitions, persisted data changes, emitted domain events/messages (e.g. MassTransit contracts), downstream consumers/notifications triggered (email, SMS, Slack, audit log), cache/UI refreshes, and any explicitly stated "should not happen" negative side effect (e.g. "must not send a duplicate notification").
+12. **Every effect or side effect implied by an action in an AC must be covered by one or more requirement row.** For any AC describing a user action or system trigger, consider and capture requirement rows that cover: state/status transitions, persisted data changes, emitted domain events/messages (e.g. MassTransit contracts), downstream consumers/notifications triggered (email, SMS, Slack, audit log), cache/UI refreshes, and any explicitly stated "should not happen" negative side effect (e.g. "must not send a duplicate notification").
 13. Do not fold a side effect into the notes column of an unrelated row as an aside — if it is independently testable, it gets its own row so the coverage mapper can verify it with its own evidence.
 
 ## Output
