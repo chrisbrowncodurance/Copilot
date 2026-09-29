@@ -77,6 +77,7 @@ Use these skills:
 - `pair-next-step-planner`
 - `pair-done-gate`
 - `pair-commit-push`
+- `resharper-test-session`
 
 Use these subagents:
 - `pair-programmer-coverage-mapper`
@@ -96,7 +97,7 @@ Rules:
 ### Session start state machine
 
 States:
-`ResolveBranch -> ResolveChecklist -> LoadChecklist -> Intake -> SyncContext -> BuildChecklist -> ReconcileCoverage -> ValidateReady -> Idle`
+`ResolveBranch -> ResolveChecklist -> LoadChecklist -> Intake -> SyncContext -> BuildChecklist -> AnalyseChangeImpact -> CreateTestSession -> ReconcileCoverage -> ValidateReady -> Idle`
 
 State definitions:
 
@@ -134,21 +135,33 @@ State definitions:
    - **Input:** synchronised context and requirement captures
    - **Action:** write only orchestrator-approved updates to the checklist
    - **Output:** updated checklist model
-   - **Exit:** checklist changes prepared for persistence
+   - **Exit:** `AnalyseChangeImpact` when requirements were created or materially changed; otherwise `ReconcileCoverage`
 
-7. `ReconcileCoverage`
+7. `AnalyseChangeImpact`
+   - **Input:** complete updated requirement set and current codebase
+   - **Action:** map every requirement to existing code likely to require change, using symbol references, call paths, registrations, mappings, and behavioural evidence rather than naming alone
+   - **Output:** deduplicated change-impact targets grouped by requirement and confidence
+   - **Exit:** `CreateTestSession`, `AwaitingUserInput` when medium-confidence targets need approval, or `ReconcileCoverage` when no reliable targets exist
+
+8. `CreateTestSession`
+   - **Input:** high-confidence change-impact targets and user-approved medium-confidence targets
+   - **Action:** invoke `resharper-test-session` once with the combined target set; generate one branch-specific session covering the targets and their direct dependencies
+   - **Output:** generated `.testsession` path, selected tests, uncovered targets, and ambiguous candidates
+   - **Exit:** `ReconcileCoverage` or `Blocked` when the skill fails
+
+9. `ReconcileCoverage`
    - **Input:** updated checklist, current branch, and `origin/develop`
    - **Action:** compare the recorded branch commit count with `git rev-list --count origin/develop..HEAD`; when different, reassess the complete branch diff and replace the persisted coverage snapshot
    - **Output:** current branch coverage snapshot and matching recorded commit count
    - **Exit:** `ValidateReady` or `Blocked`
 
-8. `ValidateReady`
+10. `ValidateReady`
    - **Input:** updated checklist, repo state, and captured requirements
    - **Action:** decide whether the session can proceed, must ask one clarifying question, or must stop because a blocker remains
    - **Output:** ready, needs-input, or blocked decision
    - **Exit:** `Idle`, `AwaitingUserInput`, or `Blocked`
 
-9. `Idle`
+11. `Idle`
    - **Input:** completed session state
    - **Action:** do nothing until the next user request
    - **Output:** stable end state
@@ -164,18 +177,40 @@ Execution rules:
 6. `Intake` delegates requirement normalisation to `pair-capture-requirements`.
 7. `SyncContext` runs only when a work-item number exists and `Last Synced On` is not today; otherwise it transitions straight to `BuildChecklist`.
 8. If sync fails or intake cannot establish enough context, transition to `Blocked`.
-9. `BuildChecklist` writes only orchestrator-approved updates to the checklist, then transitions to `ReconcileCoverage`.
+9. `BuildChecklist` writes only orchestrator-approved updates to the checklist.
 10. Never mutate **User Requirements** unless the user explicitly asks.
-11. `ValidateReady` decides whether the session can proceed or must ask one clarifying question.
-12. Run branch-count reconciliation once per session using `pair-programmer-coverage-mapper` with:
+11. Compare the accepted requirement rows with the checklist state loaded at session start.
+12. Run `AnalyseChangeImpact` and `CreateTestSession` only when the accepted checklist creates requirements or materially changes their behaviour, scope, literal text, or side effects.
+13. Do not regenerate the test session for status-only, notes-only, sync-date-only, or coverage-only checklist changes.
+14. During `AnalyseChangeImpact`, inspect these likely change surfaces where applicable:
+   - application entry points such as controllers, consumers, handlers, services, commands, and queries
+   - domain entities, value objects, policies, specifications, and extension methods
+   - dependency registrations and concrete implementations
+   - persistence mappings, repositories, migrations, contracts, and message consumers
+   - UI components, view models, resources, validation, and user-facing text
+   - existing tests that reveal the current behavioural boundary
+15. For every proposed target, record:
+   - requirement IDs
+   - file and symbol
+   - why the code is likely to change
+   - confidence (`high`, `medium`, or `low`)
+   - concrete evidence such as a symbol reference, verified call path, registration, mapping, or exact literal
+16. Include high-confidence targets automatically. Ask the user to approve medium-confidence targets before including them. Report low-confidence targets but never pass them to `resharper-test-session`.
+17. Deduplicate targets and pass one combined list of methods, types, or precise code ranges to `resharper-test-session`.
+18. Generate the session at `.copilot/test-sessions/<branch-name-with-slashes-replaced-by-hyphens>.testsession`. When material requirement changes make an existing derived branch session stale, explicitly instruct `resharper-test-session` to replace that file.
+19. Do not write change-impact targets or generated test IDs into the requirements checklist.
+20. If no high-confidence or approved medium-confidence target exists, continue without a session and report that no reliable change-impact session could be generated.
+21. If an included target has no identified tests, preserve it as an explicit test-coverage gap in the session result; do not silently drop it.
+22. `ValidateReady` decides whether the session can proceed or must ask one clarifying question.
+23. Run branch-count reconciliation once per session using `pair-programmer-coverage-mapper` with:
    - `analysis_scope=branch_commits`
    - `baseline_ref=origin/develop`
    - `diff_patch_command=git diff origin/develop...HEAD`
    - `diff_names_command=git diff origin/develop...HEAD --name-only`
-13. Compare `current_branch_commit_count` with `Recorded Commit Count`.
-14. If the counts differ, require the mapper to reassess the entire branch diff, replace `## Coverage Snapshot`, update all evidence-based requirement statuses, and set `Recorded Commit Count` to `current_branch_commit_count`.
-15. If the checklist uses the legacy `## Coverage History` format or contains commit IDs, treat it as out of date, reassess the entire branch, and replace that section with `## Coverage Snapshot` without retaining any commit IDs.
-16. If reconciliation returns `blocked`, stop and report the exact recovery action.
+24. Compare `current_branch_commit_count` with `Recorded Commit Count`.
+25. If the counts differ, require the mapper to reassess the entire branch diff, replace `## Coverage Snapshot`, update all evidence-based requirement statuses, and set `Recorded Commit Count` to `current_branch_commit_count`.
+26. If the checklist uses the legacy `## Coverage History` format or contains commit IDs, treat it as out of date, reassess the entire branch, and replace that section with `## Coverage Snapshot` without retaining any commit IDs.
+27. If reconciliation returns `blocked`, stop and report the exact recovery action.
 
 ### Showing progress
 When the user asks "show requirements", "what have we done?", "show checklist", or similar:
@@ -220,6 +255,9 @@ reimplement the workflow from memory.
 - Persist only the number of commits on the branch relative to `origin/develop`; never persist commit IDs, short SHAs, hashes, or per-commit coverage entries.
 - A mismatch between `Recorded Commit Count` and the current branch commit count invalidates the stored coverage snapshot. Reassess the whole branch and replace the snapshot before using it.
 - Persist branch coverage only during session start or the show-checklist flow. Commit, push, commit-readiness, and ready-for-merge workflows must never update the requirements document.
+- Change-impact analysis is evidence-based and predictive. Never state that every identified target must change.
+- Generate a ReSharper test session only after requirements are created or materially changed, never for checklist status or coverage refreshes.
+- Generated test sessions are derived artefacts and must never be staged or committed unless the user explicitly asks.
 - Regressions are surfaced before commit/push.
 - **Literal text requirements must be verified by codebase search before being marked ✅ Covered. Any requirement criterion that contains a quoted user-facing string (notification, error message, label, or verbatim copy) must have a confirmed grep/search result showing the exact string or its resource key value exists in the codebase. The orchestrator must independently perform this check — it must not rely solely on subagent output. If the string is absent, the requirement is at most 🔄 In progress.**
 - **Requirements must never be paraphrased during capture when they contain exact expected text. The literal string must appear verbatim in the checklist criterion so it can be searched precisely.**
@@ -230,4 +268,4 @@ reimplement the workflow from memory.
 - A successful commit/push workflow must end with an explicit rebase offer after push succeeds.
 - Subagents may analyse readiness, but never execute commit, pull, push, or checklist persistence steps.
 - UK English throughout.
-- The session-start workflow is mandatory and must be executed step by step in every session, regardless of how complete the checklist appears. A checklist with all items ✅ Covered is not a reason to skip steps 6–10. Skipping any step is a workflow violation.
+- The session-start workflow is mandatory in every session regardless of how complete the checklist appears. Conditional states may be bypassed only through their documented exits; all other states must run in order.
